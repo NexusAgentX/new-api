@@ -10,6 +10,8 @@ on:
 
 jobs:
   build:
+    # Inherited upstream publishing stays inert in the Nexus fork.
+    if: github.repository == 'QuantumNous/new-api'
     strategy:
       matrix:
         # os: [macos-latest, windows-latest]
