@@ -272,7 +272,7 @@ func TestDoRequestSplitsReceiveWindowFromGatewayProcessing(t *testing.T) {
 
 	ctx, recorder := newDoRequestTestContext()
 	start := time.Now()
-	ctx.Set(string(constant2.ContextKeyRequestStartTime), start.Add(-120*time.Millisecond))
+	ctx.Set(string(constant2.ContextKeyRequestArrivedAt), start.Add(-120*time.Millisecond))
 	ctx.Set(string(constant2.ContextKeyRequestBodyReceivedAt), start.Add(-50*time.Millisecond))
 
 	req, err := http.NewRequest(http.MethodPost, upstream.URL, strings.NewReader(`{"model":"gpt-5.6-sol"}`))

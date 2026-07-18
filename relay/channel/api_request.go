@@ -525,25 +525,31 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		return nil, errors.New("resp is nil")
 	}
 
-	// Server-Timing decomposes the caller's wait: "recv" is the window until the
-	// client body was fully buffered (upload), "gateway" is pure relay processing
-	// after that (falling back to the distributor start when the receive time is
-	// unknown), "upstream" is the full provider round trip until response
-	// headers, and "upstream-prefill" starts once the request body was fully
-	// sent (provider queue + prompt prefill). Handlers write the response body
-	// after this point, so the header still precedes the first flush.
+	// Server-Timing decomposes the caller's wait: "recv" spans request arrival
+	// until the client body is fully buffered (upload + middleware), "gateway" is
+	// relay processing after that (channel selection, conversion, billing),
+	// "upstream" is the full provider round trip until response headers, and
+	// "upstream-prefill" starts once the request body was fully sent (provider
+	// queue + prompt prefill). Handlers write the response body after this
+	// point, so the header still precedes the first flush.
 	serverTiming := fmt.Sprintf("upstream;dur=%d", time.Since(upstreamStart).Milliseconds())
 	if !wroteUpstreamRequestAt.IsZero() {
 		serverTiming = fmt.Sprintf("%s, upstream-prefill;dur=%d", serverTiming, time.Since(wroteUpstreamRequestAt).Milliseconds())
 	}
-	if startTime := common2.GetContextKeyTime(c, constant2.ContextKeyRequestStartTime); !startTime.IsZero() {
-		gatewayStart := startTime
-		if receivedAt := common2.GetContextKeyTime(c, constant2.ContextKeyRequestBodyReceivedAt); !receivedAt.IsZero() {
-			if recvMs := receivedAt.Sub(startTime).Milliseconds(); recvMs >= 0 {
-				serverTiming = fmt.Sprintf("recv;dur=%d, %s", recvMs, serverTiming)
-			}
-			gatewayStart = receivedAt
+	arrivedAt := common2.GetContextKeyTime(c, constant2.ContextKeyRequestArrivedAt)
+	receivedAt := common2.GetContextKeyTime(c, constant2.ContextKeyRequestBodyReceivedAt)
+	if !arrivedAt.IsZero() && !receivedAt.IsZero() {
+		if recvMs := receivedAt.Sub(arrivedAt).Milliseconds(); recvMs >= 0 {
+			serverTiming = fmt.Sprintf("recv;dur=%d, %s", recvMs, serverTiming)
 		}
+	}
+	// gateway starts at body-received when known; fall back to the distributor
+	// start time for paths that never buffered a body (e.g. GET relays).
+	gatewayStart := receivedAt
+	if gatewayStart.IsZero() {
+		gatewayStart = common2.GetContextKeyTime(c, constant2.ContextKeyRequestStartTime)
+	}
+	if !gatewayStart.IsZero() {
 		if gatewayMs := upstreamStart.Sub(gatewayStart).Milliseconds(); gatewayMs >= 0 {
 			serverTiming = fmt.Sprintf("gateway;dur=%d, %s", gatewayMs, serverTiming)
 		}
