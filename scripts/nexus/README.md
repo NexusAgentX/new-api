@@ -110,6 +110,22 @@ runs can rebuild an existing `nexus-v*` tag. Record the resulting multi-arch
 manifest digest before changing any deployment, and keep production updates on
 the separately documented backup-first path.
 
+## Production deployment
+
+The `Nexus production deploy` workflow runs after a successful `Nexus Docker
+image` workflow, or manually for an existing `nexus-v*` tag. It resolves the
+exact multi-arch digest, then waits for approval in the `production-new-api`
+GitHub Environment before using SSH.
+
+The production host accepts only a restricted, forced-command deploy key. That
+key runs `/usr/local/sbin/new-api-github-deploy`, which pulls the requested
+image, creates a fresh backup, updates `/opt/new-api/compose.yaml`, validates
+the Compose file, waits for New API/PostgreSQL/Redis health, checks both
+public endpoints, and restores the previous Compose file on failure.
+
+The workflow deploys only the exact `tag@digest` resolved from GHCR. It does
+not follow a moving branch or `latest` tag.
+
 ## Inherited upstream workflows
 
 The inherited Docker Hub, GitHub Release, Electron, and PR triage workflows are
