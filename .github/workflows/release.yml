@@ -16,6 +16,8 @@ on:
 jobs:
   linux:
     name: Linux Release
+    # Inherited upstream releases stay inert in the Nexus fork.
+    if: github.repository == 'QuantumNous/new-api'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -75,6 +77,8 @@ jobs:
 
   macos:
     name: macOS Release
+    # Inherited upstream releases stay inert in the Nexus fork.
+    if: github.repository == 'QuantumNous/new-api'
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -130,6 +134,8 @@ jobs:
 
   windows:
     name: Windows Release
+    # Inherited upstream releases stay inert in the Nexus fork.
+    if: github.repository == 'QuantumNous/new-api'
     runs-on: windows-latest
     defaults:
       run:
