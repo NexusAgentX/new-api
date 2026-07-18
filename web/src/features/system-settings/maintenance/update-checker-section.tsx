@@ -36,6 +36,110 @@ type ReleaseInfo = {
   published_at?: string
 }
 
+type GitRefInfo = {
+  ref: string
+}
+
+type NexusVersion = {
+  version: string
+  tag: string
+  upstreamVersion: string
+  build: number
+}
+
+function parseNexusVersion(version: string): NexusVersion | null {
+  const separator = version.lastIndexOf('-nexus.')
+  if (separator <= 0) return null
+
+  const upstreamVersion = version.slice(0, separator)
+  const buildText = version.slice(separator + '-nexus.'.length)
+  if (!upstreamVersion.startsWith('v') || !/^\d+$/.test(buildText)) {
+    return null
+  }
+
+  return {
+    version,
+    tag: `nexus-${version}`,
+    upstreamVersion,
+    build: Number(buildText),
+  }
+}
+
+function parseNexusTag(ref: string): NexusVersion | null {
+  const tag = ref.replace(/^refs\/tags\//, '')
+  if (!tag.startsWith('nexus-v')) return null
+
+  const version = tag.slice('nexus-'.length)
+  const parsed = parseNexusVersion(version)
+  if (!parsed) return null
+
+  return { ...parsed, tag }
+}
+
+function comparePrerelease(
+  left: string | undefined,
+  right: string | undefined
+): number {
+  if (!left && !right) return 0
+  if (!left) return 1
+  if (!right) return -1
+
+  const leftParts = left.split(/[.-]/)
+  const rightParts = right.split(/[.-]/)
+  const partCount = Math.max(leftParts.length, rightParts.length)
+
+  for (let index = 0; index < partCount; index += 1) {
+    const leftPart = leftParts[index]
+    const rightPart = rightParts[index]
+    if (leftPart === undefined) return -1
+    if (rightPart === undefined) return 1
+    if (leftPart === rightPart) continue
+
+    const leftIsNumber = /^\d+$/.test(leftPart)
+    const rightIsNumber = /^\d+$/.test(rightPart)
+    if (leftIsNumber && rightIsNumber) {
+      return Number(leftPart) - Number(rightPart)
+    }
+    if (leftIsNumber) return -1
+    if (rightIsNumber) return 1
+    return leftPart.localeCompare(rightPart)
+  }
+
+  return 0
+}
+
+function compareUpstreamVersions(left: string, right: string): number {
+  const versionPattern = /^v(\d+)\.(\d+)\.(\d+)(?:-(.+))?$/
+  const leftMatch = versionPattern.exec(left)
+  const rightMatch = versionPattern.exec(right)
+  if (!leftMatch || !rightMatch) return left.localeCompare(right)
+
+  for (let index = 1; index <= 3; index += 1) {
+    const diff = Number(leftMatch[index]) - Number(rightMatch[index])
+    if (diff !== 0) return diff
+  }
+
+  return comparePrerelease(leftMatch[4], rightMatch[4])
+}
+
+function compareNexusVersions(left: NexusVersion, right: NexusVersion): number {
+  const upstreamDiff = compareUpstreamVersions(
+    left.upstreamVersion,
+    right.upstreamVersion
+  )
+  if (upstreamDiff !== 0) return upstreamDiff
+  return left.build - right.build
+}
+
+function latestNexusVersion(refs: GitRefInfo[]): NexusVersion | null {
+  const versions = refs
+    .map((ref) => parseNexusTag(ref.ref))
+    .filter((version): version is NexusVersion => version !== null)
+
+  versions.sort(compareNexusVersions)
+  return versions.at(-1) ?? null
+}
+
 type UpdateCheckerSectionProps = {
   currentVersion?: string | null
   startTime?: number | null
@@ -56,6 +160,53 @@ export function UpdateCheckerSection({
   const handleCheckUpdates = async () => {
     setChecking(true)
     try {
+      const nexusVersion = currentVersion
+        ? parseNexusVersion(currentVersion)
+        : null
+
+      if (nexusVersion) {
+        const response = await fetch(
+          'https://api.github.com/repos/NexusAgentX/new-api/git/matching-refs/tags/nexus-v',
+          {
+            headers: {
+              Accept: 'application/vnd.github+json',
+              'User-Agent': 'new-api-dashboard',
+            },
+          }
+        )
+
+        if (!response.ok) {
+          throw new Error(t('Failed to contact GitHub releases API'))
+        }
+
+        const refs = (await response.json()) as GitRefInfo[]
+        if (!Array.isArray(refs)) {
+          throw new Error(t('Unexpected release payload'))
+        }
+
+        const latest = latestNexusVersion(refs)
+        if (!latest) {
+          throw new Error(t('Unexpected release payload'))
+        }
+
+        if (compareNexusVersions(latest, nexusVersion) <= 0) {
+          toast.success(
+            t('You are running the latest version ({{version}}).', {
+              version: latest.version,
+            })
+          )
+          return
+        }
+
+        setRelease({
+          tag_name: latest.version,
+          name: latest.tag,
+          html_url: `https://github.com/NexusAgentX/new-api/releases/tag/${encodeURIComponent(latest.tag)}`,
+        })
+        setDialogOpen(true)
+        return
+      }
+
       const response = await fetch(
         'https://api.github.com/repos/Calcium-Ion/new-api/releases/latest',
         {
