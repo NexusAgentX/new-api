@@ -15,6 +15,8 @@ on:
 jobs:
   build_single_arch:
     name: Build & push (${{ matrix.arch }})
+    # Inherited upstream publishing stays inert in the Nexus fork.
+    if: github.repository == 'QuantumNous/new-api'
     strategy:
       fail-fast: false
       matrix:
@@ -105,9 +107,10 @@ jobs:
 
   create_manifests:
     name: Create multi-arch manifests
+    # Inherited upstream publishing stays inert in the Nexus fork.
+    if: github.repository == 'QuantumNous/new-api' && (startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch')
     needs: [build_single_arch]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
 
     permissions:
       id-token: write
