@@ -1,0 +1,67 @@
+# Nexus Fork Invariants
+
+Read this reference before changing Nexus-owned behavior, reviewing the patch
+stack, or resolving an upstream rebase conflict.
+
+## Repository Identity
+
+- `origin` must be `NexusAgentX/new-api`.
+- `upstream` must be `QuantumNous/new-api`.
+- `main` is an upstream mirror and contains no Nexus patches.
+- `nexus` is the default distribution branch. It is a linear Nexus patch stack
+  based on an official `v*` release tag, never a moving `main` commit.
+- Discover the current base, patch count, and release tags from Git. Do not
+  hardcode a version from this reference.
+
+Use these commands to reconstruct current state:
+
+```bash
+git status --short --branch
+git remote -v
+git describe --tags --match 'v[0-9]*' --abbrev=0 nexus
+base="$(git describe --tags --match 'v[0-9]*' --abbrev=0 nexus)"
+git rev-list --count "${base}..nexus"
+git tag --list 'nexus-v*' --sort=-version:refname
+```
+
+## Behavior That Must Survive Rebases
+
+| Area | Invariant | Primary owners |
+| --- | --- | --- |
+| Branch model | Keep `main` as a pure upstream mirror and keep Nexus changes only on `nexus` or short-lived branches based on it. | repository branch state |
+| Upstream updates | Replay the Nexus patch stack onto official `v*` release tags; never merge `nexus` into `main`. | `scripts/nexus/update-upstream.sh` |
+| Upstream notification | The scheduled check reports official release drift but never rewrites `nexus`. | `.github/workflows/nexus-upstream-check.yml` |
+| Fork validation | Nexus pushes and PRs run Go backend tests and both frontend builds only in the Nexus repository. | `.github/workflows/nexus-validation.yml` |
+| Image identity | Publish Nexus images to `ghcr.io/nexusagentx/new-api`, never to the official `calciumion/new-api` repository. | `.github/workflows/nexus-docker.yml` |
+| Release tags | Use `nexus-<official-release-tag>-nexus.N` and derive the image version from that tag. | `.github/workflows/nexus-docker.yml`, `scripts/nexus/README.md` |
+| Inherited publishing | Inherited Docker Hub, Release, Electron, and PR triage jobs stay inert unless running in `QuantumNous/new-api`. | upstream-owned files under `.github/workflows/` |
+| Attribution | Preserve New API, QuantumNous, copyright, license, notices, and upstream documentation. Publish corresponding Nexus source publicly. | `README.md`, `LICENSE`, `NOTICE`, `THIRD-PARTY-LICENSES.md` |
+
+## Patch Stack Hygiene
+
+Before rebasing `nexus` onto a newer official release tag, first compact the
+current patch stack while it is still based on the existing official tag.
+This is a required maintenance gate after a target release is approved, not an
+automatic action performed by the scheduled upstream-check workflow.
+
+- Create a dated backup branch and do the compaction in a temporary branch or
+  worktree.
+- Fold follow-up fixes, reversions, and rebase-compatibility fixes into the
+  feature commit that owns the resulting behavior. Keep independent product
+  capabilities as distinct commits.
+- Do not alter or discard migration paths that deployed installations may need;
+  only remove Git history that has no surviving behavior.
+- Prove that compaction preserves the final tree with
+  `git diff --exit-code <backup>..<repacked>` and review the rewritten series
+  with `git range-diff <base>..<backup> <base>..<repacked>`.
+- Run the applicable validation, verify the remote has not advanced, and use
+  `git push --force-with-lease origin nexus` to publish the compacted stack.
+  Only then begin the official-base rebase.
+
+## External Deployment Boundary
+
+Building or publishing a Nexus image is not a production deployment. The
+production New API instance has its own backup-first update procedure in the
+operations repository. Do not change remote Docker Compose files, databases, or
+public ingress from this fork unless the user explicitly requested that
+separate deployment task.

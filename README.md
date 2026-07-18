@@ -1,3 +1,11 @@
+> **NexusAgentX fork notice:** This repository is the unofficial NexusAgentX
+> distribution of [QuantumNous/new-api](https://github.com/QuantumNous/new-api).
+> The default `nexus` branch carries the Nexus patch stack on official release
+> tags, while `main` mirrors upstream. Fork maintainers should follow the
+> [Nexus maintenance guide](scripts/nexus/README.md). The original project
+> identity, copyright, license, notices, documentation, and attribution are
+> preserved.
+
 <div align="center">
 
 ![new-api](/web/public/logo.png)
