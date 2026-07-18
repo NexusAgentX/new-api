@@ -9,6 +9,13 @@ const (
 
 	ContextKeyOriginalModel    ContextKey = "original_model"
 	ContextKeyRequestStartTime ContextKey = "request_start_time"
+	// ContextKeyRequestArrivedAt is stamped by the RequestId middleware as the
+	// earliest app-level approximation of request arrival; Server-Timing uses it
+	// as the start of the receive window.
+	ContextKeyRequestArrivedAt ContextKey = "request_arrived_at"
+	// ContextKeyRequestBodyReceivedAt marks when the relay finished reading the
+	// client request body; Server-Timing uses it to split upload from processing.
+	ContextKeyRequestBodyReceivedAt ContextKey = "request_body_received_at"
 
 	/* token related keys */
 	ContextKeyTokenUnlimited         ContextKey = "token_unlimited_quota"

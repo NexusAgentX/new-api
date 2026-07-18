@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptrace"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	common2 "github.com/QuantumNous/new-api/common"
+	constant2 "github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/constant"
@@ -506,6 +508,14 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		}
 	}
 
+	var wroteUpstreamRequestAt time.Time
+	trace := &httptrace.ClientTrace{
+		WroteRequest: func(httptrace.WroteRequestInfo) {
+			wroteUpstreamRequestAt = time.Now()
+		},
+	}
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
+	upstreamStart := time.Now()
 	resp, err := client.Do(req)
 	if err != nil {
 		logger.LogError(c, "do request failed: "+err.Error())
@@ -514,6 +524,37 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	if resp == nil {
 		return nil, errors.New("resp is nil")
 	}
+
+	// Server-Timing decomposes the caller's wait: "recv" spans request arrival
+	// until the client body is fully buffered (upload + middleware), "gateway" is
+	// relay processing after that (channel selection, conversion, billing),
+	// "upstream" is the full provider round trip until response headers, and
+	// "upstream-prefill" starts once the request body was fully sent (provider
+	// queue + prompt prefill). Handlers write the response body after this
+	// point, so the header still precedes the first flush.
+	serverTiming := fmt.Sprintf("upstream;dur=%d", time.Since(upstreamStart).Milliseconds())
+	if !wroteUpstreamRequestAt.IsZero() {
+		serverTiming = fmt.Sprintf("%s, upstream-prefill;dur=%d", serverTiming, time.Since(wroteUpstreamRequestAt).Milliseconds())
+	}
+	arrivedAt := common2.GetContextKeyTime(c, constant2.ContextKeyRequestArrivedAt)
+	receivedAt := common2.GetContextKeyTime(c, constant2.ContextKeyRequestBodyReceivedAt)
+	if !arrivedAt.IsZero() && !receivedAt.IsZero() {
+		if recvMs := receivedAt.Sub(arrivedAt).Milliseconds(); recvMs >= 0 {
+			serverTiming = fmt.Sprintf("recv;dur=%d, %s", recvMs, serverTiming)
+		}
+	}
+	// gateway starts at body-received when known; fall back to the distributor
+	// start time for paths that never buffered a body (e.g. GET relays).
+	gatewayStart := receivedAt
+	if gatewayStart.IsZero() {
+		gatewayStart = common2.GetContextKeyTime(c, constant2.ContextKeyRequestStartTime)
+	}
+	if !gatewayStart.IsZero() {
+		if gatewayMs := upstreamStart.Sub(gatewayStart).Milliseconds(); gatewayMs >= 0 {
+			serverTiming = fmt.Sprintf("gateway;dur=%d, %s", gatewayMs, serverTiming)
+		}
+	}
+	c.Writer.Header().Set("Server-Timing", serverTiming)
 
 	if upID := resp.Header.Get(common2.RequestIdKey); upID != "" {
 		c.Set(common2.UpstreamRequestIdKey, upID)
