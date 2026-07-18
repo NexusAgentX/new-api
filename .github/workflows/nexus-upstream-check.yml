@@ -1,0 +1,72 @@
+name: Nexus upstream check
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 3 * * 1"
+
+concurrency:
+  group: nexus-upstream-check
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Compare official release
+    if: github.repository == 'NexusAgentX/new-api'
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: nexus
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Compare release tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag_re='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$'
+
+          git fetch --force --no-tags https://github.com/QuantumNous/new-api.git \
+            '+refs/tags/v*:refs/tags/v*'
+
+          current_tag="$(
+            git describe --tags --match 'v[0-9]*' --abbrev=0 HEAD
+          )"
+          latest_tag="$(
+            gh api repos/QuantumNous/new-api/releases/latest --jq '.tag_name'
+          )"
+
+          if [[ ! "$current_tag" =~ $tag_re ]]; then
+            echo "Could not determine an official release tag beneath nexus: $current_tag" >&2
+            exit 1
+          fi
+          if [[ ! "$latest_tag" =~ $tag_re ]]; then
+            echo "The latest official release tag is not a supported New API tag: $latest_tag" >&2
+            exit 1
+          fi
+
+          {
+            printf '### Nexus upstream status\n\n'
+            printf '| | Tag |\n|---|---|\n'
+            printf '| Current base | <code>%s</code> |\n' "$current_tag"
+            printf '| Latest official release | <code>%s</code> |\n' "$latest_tag"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "$current_tag" == "$latest_tag" ]]; then
+            printf '\nThe Nexus patch stack is current.\n' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          {
+            printf '\nA newer official release is available. Preview it with:\n\n'
+            printf '    scripts/nexus/update-upstream.sh --target %s --dry-run\n' "$latest_tag"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error title=Nexus upstream update available::$current_tag -> $latest_tag"
+          exit 1
