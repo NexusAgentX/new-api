@@ -62,6 +62,23 @@ ghcr.io/nexusagentx/new-api:<nexus-tag>
 5. Confirm the image labels include the Nexus source URL, the intended version,
    and the expected Git revision.
 
+## Deploy Production
+
+After the image is verified, use the `Nexus production deploy` workflow. A
+successful `Nexus Docker image` run starts it automatically, and an existing
+tag can also be selected with manual dispatch. The SSH deploy job runs only in
+the `production-new-api` GitHub Environment and waits for required reviewer
+approval.
+
+The remote forced-command script performs the production procedure: pull the
+exact `tag@digest`, run `new-api-backup.service`, back up Compose, update the
+image reference, validate Compose, recreate containers, wait for health, and
+check the loopback and two public status endpoints. If validation fails, it
+restores the prior Compose file and recreates the previous stack.
+
+Do not bypass the environment approval or copy the deploy private key into a
+workflow file, repository file, or chat log.
+
 ## Deployment Boundary
 
 A published image is only a release artifact. Production deployment is a

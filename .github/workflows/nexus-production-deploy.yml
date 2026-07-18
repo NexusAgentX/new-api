@@ -1,0 +1,167 @@
+name: Nexus production deploy
+
+on:
+  workflow_run:
+    workflows:
+      - "Nexus Docker image"
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing Nexus tag to deploy'
+        required: true
+        type: string
+
+concurrency:
+  group: new-api-production-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: ghcr.io/nexusagentx/new-api
+
+jobs:
+  resolve:
+    name: Resolve release image
+    if: github.repository == 'NexusAgentX/new-api' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      version: ${{ steps.resolve.outputs.version }}
+      digest: ${{ steps.resolve.outputs.digest }}
+      image: ${{ steps.resolve.outputs.image }}
+      sha: ${{ steps.resolve.outputs.sha }}
+
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Resolve tag and manifest
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag_re='^nexus-v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)-nexus\.[0-9]+$'
+
+          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            TAG="${{ github.event.workflow_run.head_branch }}"
+            EXPECTED_SHA="${{ github.event.workflow_run.head_sha }}"
+          else
+            TAG="${{ github.event.inputs.tag }}"
+            EXPECTED_SHA=""
+          fi
+
+          if [[ ! "$TAG" =~ $tag_re ]]; then
+            echo "::error::Tag '$TAG' must look like nexus-v1.0.0-rc.21-nexus.1"
+            exit 1
+          fi
+
+          VERSION="${TAG#nexus-}"
+          IMAGE="${IMAGE_NAME}:${TAG}"
+          INSPECT_OUTPUT="$(
+            docker buildx imagetools inspect "$IMAGE" 2>&1
+          )" || {
+            printf '%s\n' "$INSPECT_OUTPUT" >&2
+            exit 1
+          }
+          DIGEST="$(
+            awk '/^Digest:/ { print $2; exit }' <<<"$INSPECT_OUTPUT"
+          )"
+          if [[ ! "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Could not resolve a sha256 digest for $IMAGE"
+            exit 1
+          fi
+
+          REMOTE_SHA="$(
+            git ls-remote https://github.com/NexusAgentX/new-api.git \
+              "refs/tags/${TAG}" "refs/tags/${TAG}^{}" | \
+              awk -v direct="refs/tags/${TAG}" -v peeled="refs/tags/${TAG}^{}" '
+                $2 == peeled { print $1; found_peeled = 1; exit }
+                $2 == direct { direct_sha = $1 }
+                END { if (!found_peeled) print direct_sha }
+              '
+          )"
+          if [[ ! "$REMOTE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Could not resolve tag commit for $TAG"
+            exit 1
+          fi
+          if [[ -n "$EXPECTED_SHA" && "$REMOTE_SHA" != "$EXPECTED_SHA" ]]; then
+            echo "::error::Tag $TAG points at $REMOTE_SHA, not workflow SHA $EXPECTED_SHA"
+            exit 1
+          fi
+
+          DEPLOY_IMAGE="${IMAGE}@${DIGEST}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "image=${DEPLOY_IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "sha=${REMOTE_SHA}" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Resolved Nexus production image"
+            echo
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Tag | \`${TAG}\` |"
+            echo "| Version | \`${VERSION}\` |"
+            echo "| Source | \`${REMOTE_SHA}\` |"
+            echo "| Image | \`${DEPLOY_IMAGE}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    name: Deploy to us-west-vps
+    if: github.repository == 'NexusAgentX/new-api' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+    needs: [resolve]
+    environment:
+      name: production-new-api
+      url: https://ai.isok.dev
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      US_WEST_HOST: ${{ secrets.US_WEST_HOST }}
+      US_WEST_SSH_USER: ${{ secrets.US_WEST_SSH_USER }}
+      US_WEST_SSH_HOST_KEY: ${{ secrets.US_WEST_SSH_HOST_KEY }}
+      US_WEST_SSH_PRIVATE_KEY: ${{ secrets.US_WEST_SSH_PRIVATE_KEY }}
+
+    steps:
+      - name: Configure restricted deploy key
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' "$US_WEST_SSH_PRIVATE_KEY" > "$HOME/.ssh/new-api-github-deploy"
+          chmod 0600 "$HOME/.ssh/new-api-github-deploy"
+          printf '%s\n' "$US_WEST_SSH_HOST_KEY" > "$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/known_hosts"
+
+      - name: Run production deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/new-api-github-deploy" \
+            -o IdentitiesOnly=yes \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            "${US_WEST_SSH_USER}@${US_WEST_HOST}" \
+            deploy "${{ needs.resolve.outputs.tag }}" "${{ needs.resolve.outputs.digest }}"
+
+      - name: Deployment summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### Nexus production deploy"
+            echo
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Tag | \`${{ needs.resolve.outputs.tag }}\` |"
+            echo "| Version | \`${{ needs.resolve.outputs.version }}\` |"
+            echo "| Source | \`${{ needs.resolve.outputs.sha }}\` |"
+            echo "| Image | \`${{ needs.resolve.outputs.image }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
