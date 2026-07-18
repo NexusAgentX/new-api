@@ -37,6 +37,9 @@ jobs:
       sha: ${{ steps.resolve.outputs.sha }}
 
     steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
       - name: Resolve tag and manifest
         id: resolve
         shell: bash
@@ -59,9 +62,14 @@ jobs:
 
           VERSION="${TAG#nexus-}"
           IMAGE="${IMAGE_NAME}:${TAG}"
+          INSPECT_OUTPUT="$(
+            docker buildx imagetools inspect "$IMAGE" 2>&1
+          )" || {
+            printf '%s\n' "$INSPECT_OUTPUT" >&2
+            exit 1
+          }
           DIGEST="$(
-            docker buildx imagetools inspect "$IMAGE" |
-              awk '/^Digest:/ { print $2; exit }'
+            awk '/^Digest:/ { print $2; exit }' <<<"$INSPECT_OUTPUT"
           )"
           if [[ ! "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
             echo "::error::Could not resolve a sha256 digest for $IMAGE"
