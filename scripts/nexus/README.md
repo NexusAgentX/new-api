@@ -83,6 +83,14 @@ source: a33728f0ec4f5741a5d5d92e66ba3d04558e9d6b
 manifest: sha256:6e80325f1373c602e6c376b798d70b3da382a917f429b819f832b939393af25c
 ```
 
+The current production-validated Nexus image is:
+
+```text
+ghcr.io/nexusagentx/new-api:nexus-v1.0.0-rc.21-nexus.2
+source: bf65e83f910a095567b345e7605fc47ed9f3521b
+manifest: sha256:5a99b136592cab5de8ffc9cdf5ae25c9c60c2b8c63822cf6a0684dc8b0297afa
+```
+
 Use annotated tags shaped like this:
 
 ```text
