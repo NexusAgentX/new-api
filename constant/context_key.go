@@ -9,6 +9,9 @@ const (
 
 	ContextKeyOriginalModel    ContextKey = "original_model"
 	ContextKeyRequestStartTime ContextKey = "request_start_time"
+	// ContextKeyRequestBodyReceivedAt marks when the relay finished reading the
+	// client request body; Server-Timing uses it to split upload from processing.
+	ContextKeyRequestBodyReceivedAt ContextKey = "request_body_received_at"
 
 	/* token related keys */
 	ContextKeyTokenUnlimited         ContextKey = "token_unlimited_quota"

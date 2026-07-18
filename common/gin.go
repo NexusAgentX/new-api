@@ -76,6 +76,10 @@ func GetRequestBody(c *gin.Context) (io.Seeker, error) {
 		return nil, err
 	}
 
+	// The client body is fully buffered at this point; record it so relay
+	// Server-Timing can report the receive window separately from processing.
+	c.Set(string(constant.ContextKeyRequestBodyReceivedAt), time.Now())
+
 	// 缓存存储对象
 	c.Set(KeyBodyStorage, storage)
 

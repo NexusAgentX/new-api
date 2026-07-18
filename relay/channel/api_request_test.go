@@ -261,3 +261,37 @@ func TestDoRequestOmitsGatewayMetricWithoutStartTime(t *testing.T) {
 	require.Regexp(t, `(?:^|, )upstream;dur=\d+`, header)
 	require.NotContains(t, header, "gateway;dur=")
 }
+
+func TestDoRequestSplitsReceiveWindowFromGatewayProcessing(t *testing.T) {
+	t.Parallel()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	ctx, recorder := newDoRequestTestContext()
+	start := time.Now()
+	ctx.Set(string(constant2.ContextKeyRequestStartTime), start.Add(-120*time.Millisecond))
+	ctx.Set(string(constant2.ContextKeyRequestBodyReceivedAt), start.Add(-50*time.Millisecond))
+
+	req, err := http.NewRequest(http.MethodPost, upstream.URL, strings.NewReader(`{"model":"gpt-5.6-sol"}`))
+	require.NoError(t, err)
+
+	resp, err := DoRequest(ctx, req, &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}})
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	header := recorder.Header().Get("Server-Timing")
+	recv := regexp.MustCompile(`(?:^|, )recv;dur=(\d+)`).FindStringSubmatch(header)
+	require.Len(t, recv, 2, "recv dur should be reported when the body receive time is known")
+	recvMs, err := strconv.Atoi(recv[1])
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, recvMs, 70)
+
+	gateway := regexp.MustCompile(`(?:^|, )gateway;dur=(\d+)`).FindStringSubmatch(header)
+	require.Len(t, gateway, 2)
+	gatewayMs, err := strconv.Atoi(gateway[1])
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, gatewayMs, 50, "gateway measures from body-received to forward, not from distributor start")
+}
