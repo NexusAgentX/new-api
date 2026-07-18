@@ -35,6 +35,7 @@ git tag --list 'nexus-v*' --sort=-version:refname
 | Image identity | Publish Nexus images to `ghcr.io/nexusagentx/new-api`, never to the official `calciumion/new-api` repository. | `.github/workflows/nexus-docker.yml` |
 | Release tags | Use `nexus-<official-release-tag>-nexus.N` and derive the image version from that tag. | `.github/workflows/nexus-docker.yml`, `scripts/nexus/README.md` |
 | Inherited publishing | Inherited Docker Hub, Release, Electron, and PR triage jobs stay inert unless running in `QuantumNous/new-api`. | upstream-owned files under `.github/workflows/` |
+| Update checker | Nexus builds detect `*-nexus.N` versions and compare them with `NexusAgentX/new-api` `nexus-v*` tags; official builds keep the upstream release check. | `web/default/src/features/system-settings/maintenance/update-checker-section.tsx` |
 | Attribution | Preserve New API, QuantumNous, copyright, license, notices, and upstream documentation. Publish corresponding Nexus source publicly. | `README.md`, `LICENSE`, `NOTICE`, `THIRD-PARTY-LICENSES.md` |
 
 ## External Deployment Boundary
