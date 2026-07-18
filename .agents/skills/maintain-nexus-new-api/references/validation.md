@@ -14,14 +14,8 @@ changed:
 go test ./<package>/...
 ```
 
-Before pushing a patch-stack rebase or a release candidate, run the backend
-baseline:
-
-```bash
-go test ./...
-```
-
-For frontend changes, build the affected theme. The fork CI builds both:
+The root package embeds both frontend `dist` directories. Build them before
+running the backend baseline:
 
 ```bash
 cd web
@@ -34,7 +28,13 @@ cd ..
 bun install --filter ./classic --frozen-lockfile
 cd classic
 VITE_REACT_APP_VERSION="$(cat ../../VERSION)" bun run build
+
+cd ../..
+go test ./...
 ```
+
+For frontend-only changes, the relevant portion of the build above is also the
+focused validation; the fork CI always builds both themes.
 
 For Dockerfile or workflow changes, validate the YAML shape and inspect the
 planned image tags. Do not push a `nexus-v*` tag merely to test the workflow;
