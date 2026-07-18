@@ -14,7 +14,11 @@ Nexus Docker image release.
    ```
 
 4. Confirm validation has passed for the commit.
-5. List existing Nexus tags and choose the next build number:
+5. Confirm the GHCR package is publicly pullable when the release is intended
+   for anonymous deployment. GitHub Packages defaults new packages to private,
+   and visibility changes require the package settings web UI. Verify with an
+   unauthenticated client after the first publish.
+6. List existing Nexus tags and choose the next build number:
 
    ```bash
    git tag --list 'nexus-v*' --sort=-version:refname

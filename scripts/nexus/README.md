@@ -70,6 +70,19 @@ Nexus images are published to GHCR as `ghcr.io/nexusagentx/new-api`. The
 `Nexus Docker image` workflow builds Linux amd64 and arm64 variants and then
 creates a multi-arch manifest.
 
+The GHCR package is public and allows anonymous pulls. GitHub Packages defaults
+new packages to private, and package visibility can only be changed in the
+GitHub web UI; after a registry or organization reset, verify anonymous access
+before handing an image to deployment.
+
+The first validated Nexus image is:
+
+```text
+ghcr.io/nexusagentx/new-api:nexus-v1.0.0-rc.21-nexus.1
+source: a33728f0ec4f5741a5d5d92e66ba3d04558e9d6b
+manifest: sha256:6e80325f1373c602e6c376b798d70b3da382a917f429b819f832b939393af25c
+```
+
 Use annotated tags shaped like this:
 
 ```text
