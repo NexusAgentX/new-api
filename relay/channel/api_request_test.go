@@ -3,9 +3,15 @@ package channel
 import (
 	"net/http"
 	"net/http/httptest"
+	"regexp"
+	"strconv"
+	"strings"
 	"testing"
+	"time"
 
+	constant2 "github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -190,4 +196,68 @@ func TestProcessHeaderOverride_PassHeadersTemplateSetsRuntimeHeaders(t *testing.
 	require.Equal(t, "Codex CLI", upstreamReq.Header.Get("Originator"))
 	require.Equal(t, "sess-123", upstreamReq.Header.Get("Session_id"))
 	require.Empty(t, upstreamReq.Header.Get("X-Codex-Beta-Features"))
+}
+
+func newDoRequestTestContext() (*gin.Context, *httptest.ResponseRecorder) {
+	service.InitHttpClient()
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	return ctx, recorder
+}
+
+func TestDoRequestEmitsServerTimingBreakdown(t *testing.T) {
+	t.Parallel()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("data: {}\n\n"))
+	}))
+	defer upstream.Close()
+
+	ctx, recorder := newDoRequestTestContext()
+	ctx.Set(string(constant2.ContextKeyRequestStartTime), time.Now().Add(-50*time.Millisecond))
+
+	req, err := http.NewRequest(http.MethodPost, upstream.URL, strings.NewReader(`{"model":"gpt-5.6-sol"}`))
+	require.NoError(t, err)
+
+	resp, err := DoRequest(ctx, req, &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}})
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	header := recorder.Header().Get("Server-Timing")
+	require.Regexp(t, `(?:^|, )upstream;dur=\d+`, header)
+	require.Regexp(t, `(?:^|, )upstream-prefill;dur=\d+`, header)
+
+	gateway := regexp.MustCompile(`(?:^|, )gateway;dur=(\d+)`).FindStringSubmatch(header)
+	require.Len(t, gateway, 2, "gateway dur should be reported when the request start time is known")
+	gatewayMs, err := strconv.Atoi(gateway[1])
+	require.NoError(t, err)
+	// The start time was pinned 50ms in the past; scheduling jitter can only
+	// increase the measured gateway overhead, never shrink it below that.
+	require.GreaterOrEqual(t, gatewayMs, 50)
+}
+
+func TestDoRequestOmitsGatewayMetricWithoutStartTime(t *testing.T) {
+	t.Parallel()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	ctx, recorder := newDoRequestTestContext()
+
+	req, err := http.NewRequest(http.MethodPost, upstream.URL, strings.NewReader(`{"model":"gpt-5.6-sol"}`))
+	require.NoError(t, err)
+
+	resp, err := DoRequest(ctx, req, &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}})
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	header := recorder.Header().Get("Server-Timing")
+	require.Regexp(t, `(?:^|, )upstream;dur=\d+`, header)
+	require.NotContains(t, header, "gateway;dur=")
 }
