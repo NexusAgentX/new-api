@@ -11,6 +11,7 @@ type GroupRatioInfo struct {
 	GroupRatio        float64
 	GroupSpecialRatio float64
 	HasSpecialRatio   bool
+	AllowZeroQuota    bool
 }
 
 type PriceData struct {

@@ -12,8 +12,9 @@ import (
 // integers in the database, so an oversized product must clamp to the int32
 // range instead of wrapping around and turning a charge into a credit.
 const (
-	MaxQuota = math.MaxInt32
-	MinQuota = math.MinInt32
+	MaxQuota            = math.MaxInt32
+	MinQuota            = math.MinInt32
+	MinimumBillableQuota = 1
 )
 
 // QuotaClampKind identifies why a quota conversion had to be saturated.
@@ -90,6 +91,15 @@ func strictQuota(quota int, clamp *QuotaClamp) (int, error) {
 		return 0, clamp
 	}
 	return quota, nil
+}
+
+// ApplyMinimumBillableQuota prevents a positive charge from disappearing when
+// quota conversion rounds it to zero. Exact zero-cost requests remain free.
+func ApplyMinimumBillableQuota(quota int, hasPositiveCost, allowZeroQuota bool) int {
+	if quota == 0 && hasPositiveCost && !allowZeroQuota {
+		return MinimumBillableQuota
+	}
+	return quota
 }
 
 // QuotaFromFloat converts a computed quota value to int, truncating toward

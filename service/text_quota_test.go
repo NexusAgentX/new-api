@@ -17,6 +17,44 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestCalculateTextQuotaSummaryHonorsGroupZeroQuotaSetting(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	usage := &dto.Usage{PromptTokens: 1, TotalTokens: 1}
+
+	tests := []struct {
+		name           string
+		groupRatio     float64
+		allowZeroQuota bool
+		want           int
+	}{
+		{name: "minimum quota", groupRatio: 0.1, want: 1},
+		{name: "free rounding", groupRatio: 0.1, allowZeroQuota: true, want: 0},
+		{name: "zero ratio remains free", groupRatio: 0, want: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			relayInfo := &relaycommon.RelayInfo{
+				OriginModelName: "tiny-model",
+				PriceData: types.PriceData{
+					ModelRatio:      1,
+					CompletionRatio: 1,
+					GroupRatioInfo: types.GroupRatioInfo{
+						GroupRatio:     tt.groupRatio,
+						AllowZeroQuota: tt.allowZeroQuota,
+					},
+				},
+				StartTime: time.Now(),
+			}
+
+			summary := calculateTextQuotaSummary(ctx, relayInfo, usage)
+
+			require.Equal(t, tt.want, summary.Quota)
+		})
+	}
+}
+
 func TestCalculateTextQuotaSummaryUnifiedForClaudeSemantic(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
