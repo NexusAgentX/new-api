@@ -5,31 +5,24 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestQuotaCalculationFromOtherRequiresCompleteFiniteValues(t *testing.T) {
-	before, after := quotaCalculationFromOther(map[string]interface{}{
-		"quota_before_group":          249.0,
-		"quota_after_group_unrounded": 0.0402794103,
-	})
+func TestQuotaCalculationPointersRequireAvailableFiniteValues(t *testing.T) {
+	before, after := quotaCalculationPointers(true, 249.0, 0.0402794103)
 	require.NotNil(t, before)
 	require.NotNil(t, after)
 	assert.Equal(t, 249.0, *before)
 	assert.Equal(t, 0.0402794103, *after)
 
-	before, after = quotaCalculationFromOther(map[string]interface{}{
-		"quota_before_group":          math.NaN(),
-		"quota_after_group_unrounded": 1.0,
-	})
+	before, after = quotaCalculationPointers(true, math.NaN(), 1.0)
 	assert.Nil(t, before)
 	assert.Nil(t, after)
 
-	before, after = quotaCalculationFromOther(map[string]interface{}{
-		"quota_before_group": 249.0,
-	})
+	before, after = quotaCalculationPointers(false, 249.0, 0.0402794103)
 	assert.Nil(t, before)
 	assert.Nil(t, after)
 }
@@ -45,13 +38,13 @@ func TestRecordConsumeLogPersistsAggregatableQuotaCalculations(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
 	ctx.Set("username", username)
 	RecordConsumeLog(ctx, 987654, RecordConsumeLogParams{
-		ModelName: "grok-4.5",
-		Quota:     1,
-		Group:     "grok",
-		Other: map[string]interface{}{
-			"quota_before_group":          249.1234567891234,
-			"quota_after_group_unrounded": 0.0402794103,
-		},
+		ModelName:                "grok-4.5",
+		Quota:                    1,
+		QuotaBeforeGroup:         249.1234567891234,
+		QuotaAfterGroupUnrounded: 0.0402794103,
+		HasQuotaCalculation:      true,
+		Group:                    "grok",
+		Other:                    map[string]interface{}{"group_ratio": 0.0001617647},
 	})
 
 	require.NoError(t, createLog(&Log{
@@ -69,6 +62,10 @@ func TestRecordConsumeLogPersistsAggregatableQuotaCalculations(t *testing.T) {
 	require.NotNil(t, recorded.QuotaAfterGroupUnrounded)
 	assert.InDelta(t, 249.123456789123, *recorded.QuotaBeforeGroup, 1e-12)
 	assert.InDelta(t, 0.0402794103, *recorded.QuotaAfterGroupUnrounded, 1e-12)
+	other, err := common.StrToMap(recorded.Other)
+	require.NoError(t, err)
+	assert.NotContains(t, other, "quota_before_group")
+	assert.NotContains(t, other, "quota_after_group_unrounded")
 
 	stat, err := SumUsedQuota(LogTypeConsume, 0, 0, "", username, "", 0, "")
 	require.NoError(t, err)

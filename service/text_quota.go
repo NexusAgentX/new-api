@@ -510,25 +510,25 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	if tieredBillingApplied {
 		InjectTieredBillingInfo(other, relayInfo, tieredResult)
 	}
-	if summary.HasQuotaCalculation {
-		injectQuotaCalculationInfo(other, summary.QuotaBeforeGroup.InexactFloat64(), summary.QuotaAfterGroupUnrounded.InexactFloat64())
-	}
 
 	attachQuotaSaturation(ctx, relayInfo, other)
 
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
-		ChannelId:        relayInfo.ChannelId,
-		PromptTokens:     summary.PromptTokens,
-		CompletionTokens: summary.CompletionTokens,
-		ModelName:        logModel,
-		TokenName:        summary.TokenName,
-		Quota:            summary.Quota,
-		Content:          logContent,
-		TokenId:          relayInfo.TokenId,
-		UseTimeSeconds:   int(summary.UseTimeSeconds),
-		IsStream:         relayInfo.IsStream,
-		Group:            relayInfo.UsingGroup,
-		Other:            other,
+		ChannelId:                relayInfo.ChannelId,
+		PromptTokens:             summary.PromptTokens,
+		CompletionTokens:         summary.CompletionTokens,
+		ModelName:                logModel,
+		TokenName:                summary.TokenName,
+		Quota:                    summary.Quota,
+		QuotaBeforeGroup:         summary.QuotaBeforeGroup.InexactFloat64(),
+		QuotaAfterGroupUnrounded: summary.QuotaAfterGroupUnrounded.InexactFloat64(),
+		HasQuotaCalculation:      summary.HasQuotaCalculation,
+		Content:                  logContent,
+		TokenId:                  relayInfo.TokenId,
+		UseTimeSeconds:           int(summary.UseTimeSeconds),
+		IsStream:                 relayInfo.IsStream,
+		Group:                    relayInfo.UsingGroup,
+		Other:                    other,
 	})
 	gopool.Go(func() {
 		perfmetrics.RecordRelaySample(relayInfo, true, int64(summary.CompletionTokens))

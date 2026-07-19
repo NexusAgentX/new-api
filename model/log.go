@@ -328,13 +328,8 @@ func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string,
 	}
 }
 
-func quotaCalculationFromOther(other map[string]interface{}) (*float64, *float64) {
-	if other == nil {
-		return nil, nil
-	}
-	quotaBeforeGroup, beforeOK := other["quota_before_group"].(float64)
-	quotaAfterGroupUnrounded, afterOK := other["quota_after_group_unrounded"].(float64)
-	if !beforeOK || !afterOK || quotaBeforeGroup < 0 || quotaAfterGroupUnrounded < 0 ||
+func quotaCalculationPointers(hasCalculation bool, quotaBeforeGroup, quotaAfterGroupUnrounded float64) (*float64, *float64) {
+	if !hasCalculation || quotaBeforeGroup < 0 || quotaAfterGroupUnrounded < 0 ||
 		math.IsNaN(quotaBeforeGroup) || math.IsNaN(quotaAfterGroupUnrounded) ||
 		math.IsInf(quotaBeforeGroup, 0) || math.IsInf(quotaAfterGroupUnrounded, 0) {
 		return nil, nil
@@ -343,18 +338,21 @@ func quotaCalculationFromOther(other map[string]interface{}) (*float64, *float64
 }
 
 type RecordConsumeLogParams struct {
-	ChannelId        int                    `json:"channel_id"`
-	PromptTokens     int                    `json:"prompt_tokens"`
-	CompletionTokens int                    `json:"completion_tokens"`
-	ModelName        string                 `json:"model_name"`
-	TokenName        string                 `json:"token_name"`
-	Quota            int                    `json:"quota"`
-	Content          string                 `json:"content"`
-	TokenId          int                    `json:"token_id"`
-	UseTimeSeconds   int                    `json:"use_time_seconds"`
-	IsStream         bool                   `json:"is_stream"`
-	Group            string                 `json:"group"`
-	Other            map[string]interface{} `json:"other"`
+	ChannelId                int                    `json:"channel_id"`
+	PromptTokens             int                    `json:"prompt_tokens"`
+	CompletionTokens         int                    `json:"completion_tokens"`
+	ModelName                string                 `json:"model_name"`
+	TokenName                string                 `json:"token_name"`
+	Quota                    int                    `json:"quota"`
+	QuotaBeforeGroup         float64                `json:"quota_before_group,omitempty"`
+	QuotaAfterGroupUnrounded float64                `json:"quota_after_group_unrounded,omitempty"`
+	HasQuotaCalculation      bool                   `json:"-"`
+	Content                  string                 `json:"content"`
+	TokenId                  int                    `json:"token_id"`
+	UseTimeSeconds           int                    `json:"use_time_seconds"`
+	IsStream                 bool                   `json:"is_stream"`
+	Group                    string                 `json:"group"`
+	Other                    map[string]interface{} `json:"other"`
 }
 
 func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams) {
@@ -367,7 +365,11 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 	upstreamRequestId := c.GetString(common.UpstreamRequestIdKey)
 	createdAt := common.GetTimestamp()
 	otherStr := common.MapToJsonStr(params.Other)
-	quotaBeforeGroup, quotaAfterGroupUnrounded := quotaCalculationFromOther(params.Other)
+	quotaBeforeGroup, quotaAfterGroupUnrounded := quotaCalculationPointers(
+		params.HasQuotaCalculation,
+		params.QuotaBeforeGroup,
+		params.QuotaAfterGroupUnrounded,
+	)
 	// 判断是否需要记录 IP
 	needRecordIp := false
 	if settingMap, err := GetUserSetting(userId, false); err == nil {
@@ -424,16 +426,19 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 }
 
 type RecordTaskBillingLogParams struct {
-	UserId    int
-	LogType   int
-	Content   string
-	ChannelId int
-	ModelName string
-	Quota     int
-	TokenId   int
-	Group     string
-	Other     map[string]interface{}
-	NodeName  string // 任务发起节点；为空时回退当前节点
+	UserId                   int
+	LogType                  int
+	Content                  string
+	ChannelId                int
+	ModelName                string
+	Quota                    int
+	QuotaBeforeGroup         float64
+	QuotaAfterGroupUnrounded float64
+	HasQuotaCalculation      bool
+	TokenId                  int
+	Group                    string
+	Other                    map[string]interface{}
+	NodeName                 string // 任务发起节点；为空时回退当前节点
 }
 
 func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
@@ -448,7 +453,11 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 		}
 	}
 	createdAt := common.GetTimestamp()
-	quotaBeforeGroup, quotaAfterGroupUnrounded := quotaCalculationFromOther(params.Other)
+	quotaBeforeGroup, quotaAfterGroupUnrounded := quotaCalculationPointers(
+		params.HasQuotaCalculation,
+		params.QuotaBeforeGroup,
+		params.QuotaAfterGroupUnrounded,
+	)
 	log := &Log{
 		UserId:                   params.UserId,
 		Username:                 username,

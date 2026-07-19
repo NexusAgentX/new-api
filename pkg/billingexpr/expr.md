@@ -182,7 +182,7 @@ After the upstream response returns with actual token usage:
 
 **Files**: `service/log_info_generate.go`, `web/src/helpers/render.jsx`
 
-Backend: `InjectTieredBillingInfo()` adds `billing_mode`, `expr_b64` (base64 expression), `matched_tier`, `quota_before_group`, and `quota_after_group_unrounded` to the log's `other` JSON. The two quota calculation values are also persisted to nullable `DECIMAL(30,12)` log columns for aggregation. `NULL` identifies legacy or unavailable calculations, while a numeric zero remains a genuine zero cost. Log statistics return both `consume_count` and `quota_calculation_count` so callers can measure historical coverage. The top-level `quota` column remains the final rounded charge.
+Backend: `InjectTieredBillingInfo()` adds `billing_mode`, `expr_b64` (base64 expression), and `matched_tier` to the log's `other` JSON. Actual `quota_before_group` and `quota_after_group_unrounded` values are written directly to nullable `DECIMAL(30,12)` log columns for aggregation and are not duplicated in `other`. `NULL` identifies legacy or unavailable calculations, while a numeric zero remains a genuine zero cost. Migrations intentionally leave historical rows as `NULL`: final integer quota and group ratio cannot recover the pre-rounding value after rounding or the minimum-quota floor. Log statistics return both `consume_count` and `quota_calculation_count` so callers can measure historical coverage. The top-level `quota` column remains the final rounded charge.
 
 Frontend: Detects `billing_mode === "tiered_expr"`, decodes `expr_b64`, parses tiers via shared `parseTiersFromExpr()`, and renders pricing breakdown.
 

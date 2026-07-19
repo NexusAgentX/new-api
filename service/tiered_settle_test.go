@@ -348,11 +348,11 @@ func TestTryTieredSettle_GroupRatioScaling(t *testing.T) {
 
 	other := map[string]interface{}{}
 	InjectTieredBillingInfo(other, info, result)
-	assert.InDelta(t, 3500, other["quota_before_group"], 1e-12)
-	assert.InDelta(t, 5250, other["quota_after_group_unrounded"], 1e-12)
+	assert.NotContains(t, other, "quota_before_group")
+	assert.NotContains(t, other, "quota_after_group_unrounded")
 }
 
-func TestTryTieredSettle_LogsUnroundedCostWhenMinimumQuotaApplies(t *testing.T) {
+func TestTryTieredSettle_ReturnsUnroundedCostWhenMinimumQuotaApplies(t *testing.T) {
 	const grokExpr = `tier("short-context", p * 2 + c * 6)`
 	const groupRatio = 0.0001617647
 	info := makeRelayInfo(grokExpr, groupRatio, 198, 17)
@@ -366,8 +366,8 @@ func TestTryTieredSettle_LogsUnroundedCostWhenMinimumQuotaApplies(t *testing.T) 
 
 	other := map[string]interface{}{}
 	InjectTieredBillingInfo(other, info, result)
-	assert.InDelta(t, 249, other["quota_before_group"], 1e-12)
-	assert.InDelta(t, 249*groupRatio, other["quota_after_group_unrounded"], 1e-12)
+	assert.NotContains(t, other, "quota_before_group")
+	assert.NotContains(t, other, "quota_after_group_unrounded")
 }
 
 func TestTryTieredSettle_GroupRatioZero(t *testing.T) {
