@@ -71,6 +71,15 @@ func clearChannelInfo(channel *model.Channel) {
 	}
 }
 
+func clearChannelFinanceInfo(c *gin.Context, channel *model.Channel) {
+	if c.GetInt("role") == common.RoleRootUser {
+		return
+	}
+	channel.CostMode = ""
+	channel.FixedDailyCostUSD = 0
+	channel.UsageCostRatio = 0
+}
+
 func applyChannelStatusFilter(query *gorm.DB, statusFilter int) *gorm.DB {
 	if statusFilter == common.ChannelStatusEnabled {
 		return query.Where("status = ?", common.ChannelStatusEnabled)
@@ -167,6 +176,7 @@ func GetAllChannels(c *gin.Context) {
 
 	for _, datum := range channelData {
 		clearChannelInfo(datum)
+		clearChannelFinanceInfo(c, datum)
 	}
 
 	countQuery := buildChannelListQuery(groupFilter, statusFilter, -1)
@@ -380,6 +390,7 @@ func SearchChannels(c *gin.Context) {
 
 	for _, datum := range pagedData {
 		clearChannelInfo(datum)
+		clearChannelFinanceInfo(c, datum)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -407,6 +418,7 @@ func GetChannel(c *gin.Context) {
 	}
 	if channel != nil {
 		clearChannelInfo(channel)
+		clearChannelFinanceInfo(c, channel)
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -475,6 +487,10 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 	if channel == nil {
 		return fmt.Errorf("channel cannot be empty")
 	}
+	if err := channel.ValidateCostConfig(); err != nil {
+		return err
+	}
+	channel.NormalizeCostConfig()
 
 	// 校验 channel settings
 	if err := channel.ValidateSettings(); err != nil {
@@ -610,6 +626,11 @@ func AddChannel(c *gin.Context) {
 	err := c.ShouldBindJSON(&addChannelRequest)
 	if err != nil {
 		common.ApiError(c, err)
+		return
+	}
+
+	if c.GetInt("role") != common.RoleRootUser && addChannelRequest.Channel.CostMode != "" && addChannelRequest.Channel.CostMode != constant.ChannelCostModeNone {
+		common.ApiErrorI18n(c, i18n.MsgAuthInsufficientPrivilege)
 		return
 	}
 
@@ -938,6 +959,18 @@ type ChannelStatusBatchRequest struct {
 	Status int   `json:"status"`
 }
 
+func preserveOmittedChannelCostConfig(channel, origin *model.Channel, requestData map[string]any) {
+	if _, ok := requestData["cost_mode"]; !ok {
+		channel.CostMode = origin.CostMode
+	}
+	if _, ok := requestData["fixed_daily_cost_usd"]; !ok {
+		channel.FixedDailyCostUSD = origin.FixedDailyCostUSD
+	}
+	if _, ok := requestData["usage_cost_ratio"]; !ok {
+		channel.UsageCostRatio = origin.UsageCostRatio
+	}
+}
+
 func UpdateChannel(c *gin.Context) {
 	channel := PatchChannel{}
 	rawBody, err := c.GetRawData()
@@ -958,16 +991,16 @@ func UpdateChannel(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
+	if c.GetInt("role") != common.RoleRootUser {
+		for _, field := range []string{"cost_mode", "fixed_daily_cost_usd", "usage_cost_ratio"} {
+			if _, ok := requestData[field]; ok {
+				common.ApiErrorI18n(c, i18n.MsgAuthInsufficientPrivilege)
+				return
+			}
+		}
+	}
 	clearChannelReadOnlyFields(&channel, requestData)
 
-	// 使用统一的校验函数
-	if err := validateChannel(&channel.Channel, false); err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
-		return
-	}
 	// Preserve existing ChannelInfo to ensure multi-key channels keep correct state even if the client does not send ChannelInfo in the request.
 	originChannel, err := model.GetChannelById(channel.Id, true)
 	if err != nil {
@@ -987,6 +1020,14 @@ func UpdateChannel(c *gin.Context) {
 
 	// Always copy the original ChannelInfo so that fields like IsMultiKey and MultiKeySize are retained.
 	channel.ChannelInfo = originChannel.ChannelInfo
+	preserveOmittedChannelCostConfig(&channel.Channel, originChannel, requestData)
+	if err := validateChannel(&channel.Channel, false); err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
 
 	if channelHasSensitiveChanges(&channel, originChannel, requestData) &&
 		!authz.Can(c.GetInt("id"), c.GetInt("role"), authz.ChannelSensitiveWrite) {
@@ -1105,6 +1146,15 @@ func UpdateChannel(c *gin.Context) {
 	if channel.Key != "" && channel.Key != originChannel.Key {
 		changedFields = append(changedFields, "key")
 	}
+	if _, ok := requestData["cost_mode"]; ok && channel.CostMode != originChannel.CostMode {
+		changedFields = append(changedFields, "cost_mode")
+	}
+	if _, ok := requestData["fixed_daily_cost_usd"]; ok && channel.FixedDailyCostUSD != originChannel.FixedDailyCostUSD {
+		changedFields = append(changedFields, "fixed_daily_cost_usd")
+	}
+	if _, ok := requestData["usage_cost_ratio"]; ok && channel.UsageCostRatio != originChannel.UsageCostRatio {
+		changedFields = append(changedFields, "usage_cost_ratio")
+	}
 	recordManageAudit(c, "channel.update", map[string]interface{}{
 		"id":             channel.Id,
 		"name":           channel.Name,
@@ -1112,6 +1162,7 @@ func UpdateChannel(c *gin.Context) {
 	})
 	channel.Key = ""
 	clearChannelInfo(&channel.Channel)
+	clearChannelFinanceInfo(c, &channel.Channel)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",

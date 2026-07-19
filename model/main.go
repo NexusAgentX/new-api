@@ -279,7 +279,6 @@ func migrateDB() error {
 		&Option{},
 		&Redemption{},
 		&Ability{},
-		&Log{},
 		&Midjourney{},
 		&TopUp{},
 		&QuotaData{},
@@ -313,6 +312,13 @@ func migrateDB() error {
 		return err
 	}
 	if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
+		if err := migrateSQLiteLogDB(DB); err != nil {
+			return err
+		}
+	} else if err := DB.AutoMigrate(&Log{}); err != nil {
+		return err
+	}
+	if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
 		if err := ensureSubscriptionPlanTableSQLite(); err != nil {
 			return err
 		}
@@ -342,7 +348,6 @@ func migrateDBFast() error {
 		{&Option{}, "Option"},
 		{&Redemption{}, "Redemption"},
 		{&Ability{}, "Ability"},
-		{&Log{}, "Log"},
 		{&Midjourney{}, "Midjourney"},
 		{&TopUp{}, "TopUp"},
 		{&QuotaData{}, "QuotaData"},
@@ -394,6 +399,13 @@ func migrateDBFast() error {
 		return err
 	}
 	if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
+		if err := migrateSQLiteLogDB(DB); err != nil {
+			return err
+		}
+	} else if err := DB.AutoMigrate(&Log{}); err != nil {
+		return err
+	}
+	if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
 		if err := ensureSubscriptionPlanTableSQLite(); err != nil {
 			return err
 		}
@@ -410,7 +422,33 @@ func migrateLOGDB() error {
 	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
 		return migrateClickHouseLogDB()
 	}
+	if common.UsingLogDatabase(common.DatabaseTypeSQLite) {
+		return migrateSQLiteLogDB(LOG_DB)
+	}
 	return LOG_DB.AutoMigrate(&Log{})
+}
+
+func migrateSQLiteLogDB(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&Log{}) {
+		return db.AutoMigrate(&Log{})
+	}
+	columns := []sqliteColumnDef{
+		{Name: "quota_before_group", DDL: "`quota_before_group` decimal(30,12) NULL"},
+		{Name: "quota_after_group_unrounded", DDL: "`quota_after_group_unrounded` decimal(30,12) NULL"},
+		{Name: "channel_revenue_usd", DDL: "`channel_revenue_usd` decimal(30,12) NULL"},
+		{Name: "channel_cost_usd", DDL: "`channel_cost_usd` decimal(30,12) NULL"},
+		{Name: "channel_cost_ratio", DDL: "`channel_cost_ratio` decimal(20,12) NULL"},
+		{Name: "channel_cost_mode", DDL: "`channel_cost_mode` varchar(16) NOT NULL DEFAULT ''"},
+	}
+	for _, column := range columns {
+		if db.Migrator().HasColumn(&Log{}, column.Name) {
+			continue
+		}
+		if err := db.Exec("ALTER TABLE `logs` ADD COLUMN " + column.DDL).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func migrateClickHouseLogDB() error {
@@ -419,6 +457,9 @@ func migrateClickHouseLogDB() error {
 		return err
 	}
 	if err := ensureClickHouseLogQuotaCalculationColumns(); err != nil {
+		return err
+	}
+	if err := ensureClickHouseLogFinanceColumns(); err != nil {
 		return err
 	}
 	return syncClickHouseLogTTL(ttlDays)
@@ -433,6 +474,24 @@ func clickHouseLogQuotaCalculationColumnStatements() []string {
 
 func ensureClickHouseLogQuotaCalculationColumns() error {
 	for _, statement := range clickHouseLogQuotaCalculationColumnStatements() {
+		if err := LOG_DB.Exec(statement).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func clickHouseLogFinanceColumnStatements() []string {
+	return []string{
+		"ALTER TABLE logs ADD COLUMN IF NOT EXISTS channel_revenue_usd Nullable(Decimal(30, 12)) AFTER quota_after_group_unrounded",
+		"ALTER TABLE logs ADD COLUMN IF NOT EXISTS channel_cost_usd Nullable(Decimal(30, 12)) AFTER channel_revenue_usd",
+		"ALTER TABLE logs ADD COLUMN IF NOT EXISTS channel_cost_ratio Nullable(Decimal(20, 12)) AFTER channel_cost_usd",
+		"ALTER TABLE logs ADD COLUMN IF NOT EXISTS channel_cost_mode String DEFAULT '' AFTER channel_cost_ratio",
+	}
+}
+
+func ensureClickHouseLogFinanceColumns() error {
+	for _, statement := range clickHouseLogFinanceColumnStatements() {
 		if err := LOG_DB.Exec(statement).Error; err != nil {
 			return err
 		}
@@ -477,6 +536,10 @@ CREATE TABLE IF NOT EXISTS logs (
 	quota Int32 DEFAULT 0,
 	quota_before_group Nullable(Decimal(30, 12)),
 	quota_after_group_unrounded Nullable(Decimal(30, 12)),
+	channel_revenue_usd Nullable(Decimal(30, 12)),
+	channel_cost_usd Nullable(Decimal(30, 12)),
+	channel_cost_ratio Nullable(Decimal(20, 12)),
+	channel_cost_mode String DEFAULT '',
 	prompt_tokens Int32 DEFAULT 0,
 	completion_tokens Int32 DEFAULT 0,
 	use_time Int32 DEFAULT 0,

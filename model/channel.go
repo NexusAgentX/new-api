@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"math/rand"
 	"strings"
 	"sync"
@@ -50,6 +51,9 @@ type Channel struct {
 	ParamOverride     *string `json:"param_override" gorm:"type:text"`
 	HeaderOverride    *string `json:"header_override" gorm:"type:text"`
 	Remark            *string `json:"remark" gorm:"type:varchar(255)" validate:"max=255"`
+	CostMode          string  `json:"cost_mode" gorm:"type:varchar(16)"`
+	FixedDailyCostUSD float64 `json:"fixed_daily_cost_usd"`
+	UsageCostRatio    float64 `json:"usage_cost_ratio"`
 	// add after v0.8.5
 	ChannelInfo ChannelInfo `json:"channel_info" gorm:"type:json"`
 
@@ -57,6 +61,39 @@ type Channel struct {
 
 	// cache info
 	Keys []string `json:"-" gorm:"-"`
+}
+
+func (channel *Channel) NormalizeCostConfig() {
+	switch channel.CostMode {
+	case "", constant.ChannelCostModeNone:
+		channel.CostMode = constant.ChannelCostModeNone
+		channel.FixedDailyCostUSD = 0
+		channel.UsageCostRatio = 0
+	case constant.ChannelCostModeFixedDaily:
+		channel.UsageCostRatio = 0
+	case constant.ChannelCostModeUsageRatio:
+		channel.FixedDailyCostUSD = 0
+	}
+}
+
+func (channel *Channel) ValidateCostConfig() error {
+	if channel == nil {
+		return errors.New("channel cannot be nil")
+	}
+	if math.IsNaN(channel.FixedDailyCostUSD) || math.IsInf(channel.FixedDailyCostUSD, 0) ||
+		channel.FixedDailyCostUSD < 0 || channel.FixedDailyCostUSD > constant.MaxChannelFixedDailyCostUSD {
+		return fmt.Errorf("fixed daily cost must be between 0 and %d USD", constant.MaxChannelFixedDailyCostUSD)
+	}
+	if math.IsNaN(channel.UsageCostRatio) || math.IsInf(channel.UsageCostRatio, 0) ||
+		channel.UsageCostRatio < 0 || channel.UsageCostRatio > constant.MaxChannelUsageCostRatio {
+		return fmt.Errorf("usage cost ratio must be between 0 and %d", constant.MaxChannelUsageCostRatio)
+	}
+	switch channel.CostMode {
+	case "", constant.ChannelCostModeNone, constant.ChannelCostModeFixedDaily, constant.ChannelCostModeUsageRatio:
+		return nil
+	default:
+		return fmt.Errorf("invalid channel cost mode: %s", channel.CostMode)
+	}
 }
 
 type ChannelInfo struct {
@@ -569,7 +606,14 @@ func (channel *Channel) Update() error {
 		}
 	}
 	var err error
-	err = DB.Model(channel).Updates(channel).Error
+	err = DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(channel).Updates(channel).Error; err != nil {
+			return err
+		}
+		return tx.Model(channel).
+			Select("cost_mode", "fixed_daily_cost_usd", "usage_cost_ratio").
+			Updates(channel).Error
+	})
 	if err != nil {
 		return err
 	}

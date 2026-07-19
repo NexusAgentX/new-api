@@ -30,6 +30,15 @@ func channelHasSensitiveChanges(channel *PatchChannel, origin *model.Channel, re
 	if _, ok := requestData["settings"]; ok && channel.OtherSettings != origin.OtherSettings {
 		return true
 	}
+	if _, ok := requestData["cost_mode"]; ok && channel.CostMode != origin.CostMode {
+		return true
+	}
+	if _, ok := requestData["fixed_daily_cost_usd"]; ok && channel.FixedDailyCostUSD != origin.FixedDailyCostUSD {
+		return true
+	}
+	if _, ok := requestData["usage_cost_ratio"]; ok && channel.UsageCostRatio != origin.UsageCostRatio {
+		return true
+	}
 	if _, ok := requestData["key_mode"]; ok && channel.KeyMode != nil {
 		return true
 	}
@@ -61,16 +70,19 @@ func channelHasSensitiveChanges(channel *PatchChannel, origin *model.Channel, re
 // channelHasSensitiveChanges with a precise old-vs-new comparison; this set is
 // used to exclude them from the fail-closed scan for unknown fields.
 var channelSensitiveFields = map[string]struct{}{
-	"type":                {},
-	"key":                 {},
-	"base_url":            {},
-	"openai_organization": {},
-	"header_override":     {},
-	"param_override":      {},
-	"setting":             {},
-	"other":               {},
-	"settings":            {},
-	"key_mode":            {},
+	"type":                 {},
+	"key":                  {},
+	"base_url":             {},
+	"openai_organization":  {},
+	"header_override":      {},
+	"param_override":       {},
+	"setting":              {},
+	"other":                {},
+	"settings":             {},
+	"key_mode":             {},
+	"cost_mode":            {},
+	"fixed_daily_cost_usd": {},
+	"usage_cost_ratio":     {},
 }
 
 // channelOperationalFields lists fields managed by operation endpoints instead

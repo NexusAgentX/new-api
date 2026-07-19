@@ -17,7 +17,7 @@ import (
 
 // LogTaskConsumption 记录任务消费日志和统计信息（仅记录，不涉及实际扣费）。
 // 实际扣费已由 BillingSession（PreConsumeBilling + SettleBilling）完成。
-func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
+func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) model.ChannelFinanceValues {
 	tokenName := c.GetString("token_name")
 	logContent := fmt.Sprintf("操作 %s", info.Action)
 	// 支持任务仅按次计费
@@ -52,7 +52,7 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 		other["upstream_model_name"] = info.UpstreamModelName
 	}
 	attachQuotaSaturation(c, info, other)
-	model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
+	channelFinance := model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
 		ChannelId:                info.ChannelId,
 		ModelName:                info.OriginModelName,
 		TokenName:                tokenName,
@@ -67,6 +67,7 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 	})
 	model.UpdateUserUsedQuotaAndRequestCount(info.UserId, info.PriceData.Quota)
 	model.UpdateChannelUsedQuota(info.ChannelId, info.PriceData.Quota)
+	return channelFinance
 }
 
 // ---------------------------------------------------------------------------
@@ -163,6 +164,25 @@ func taskModelName(task *model.Task) string {
 	return task.Properties.OriginModelName
 }
 
+func taskChannelFinanceAdjustment(task *model.Task, multiplier float64) *model.ChannelFinanceValues {
+	billingContext := task.PrivateData.BillingContext
+	if billingContext == nil {
+		return &model.ChannelFinanceValues{}
+	}
+	values := &model.ChannelFinanceValues{CostMode: billingContext.ChannelCostMode}
+	if billingContext.ChannelRevenueUSD == nil {
+		return values
+	}
+	revenueUSD := *billingContext.ChannelRevenueUSD * multiplier
+	values.RevenueUSD = &revenueUSD
+	if billingContext.ChannelCostMode == constant.ChannelCostModeUsageRatio && billingContext.ChannelCostUSD != nil {
+		costUSD := *billingContext.ChannelCostUSD * multiplier
+		values.CostUSD = &costUSD
+		values.CostRatio = billingContext.ChannelCostRatio
+	}
+	return values
+}
+
 // RefundTaskQuota 统一的任务失败退款逻辑。
 // 当异步任务失败时，将预扣的 quota 退还给用户（支持钱包和订阅），并退还令牌额度。
 // 返回资金来源是否已成功退还；失败时保留 quota，供显式重试或人工对账。
@@ -186,15 +206,16 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 	other["task_id"] = task.TaskID
 	other["reason"] = reason
 	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
-		UserId:    task.UserId,
-		LogType:   model.LogTypeRefund,
-		Content:   "",
-		ChannelId: task.ChannelId,
-		ModelName: taskModelName(task),
-		Quota:     quota,
-		TokenId:   task.PrivateData.TokenId,
-		Group:     task.Group,
-		Other:     other,
+		UserId:         task.UserId,
+		LogType:        model.LogTypeRefund,
+		Content:        "",
+		ChannelId:      task.ChannelId,
+		ModelName:      taskModelName(task),
+		Quota:          quota,
+		TokenId:        task.PrivateData.TokenId,
+		Group:          task.Group,
+		Other:          other,
+		ChannelFinance: taskChannelFinanceAdjustment(task, -1),
 	})
 
 	// 4. 资金退款完成后再清除持久化标记。
@@ -240,8 +261,19 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 	// 调整令牌额度
 	taskAdjustTokenQuota(ctx, task, quotaDelta)
 
+	var channelFinance *model.ChannelFinanceValues
+	if preConsumedQuota != 0 {
+		channelFinanceMultiplier := float64(quotaDelta) / float64(preConsumedQuota)
+		channelFinance = taskChannelFinanceAdjustment(task, channelFinanceMultiplier)
+		if channelFinance != nil && channelFinance.RevenueUSD != nil {
+			*task.PrivateData.BillingContext.ChannelRevenueUSD += *channelFinance.RevenueUSD
+			if channelFinance.CostUSD != nil {
+				*task.PrivateData.BillingContext.ChannelCostUSD += *channelFinance.CostUSD
+			}
+		}
+	}
 	task.Quota = actualQuota
-	if err := task.UpdateQuota(); err != nil {
+	if err := task.UpdateQuotaAndPrivateData(); err != nil {
 		logger.LogError(ctx, fmt.Sprintf("差额结算回写 quota 失败 task %s: %s", task.TaskID, err.Error()))
 	}
 
@@ -264,16 +296,17 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 		attachQuotaSaturationToOther(other, clamp)
 	}
 	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
-		UserId:    task.UserId,
-		LogType:   logType,
-		Content:   reason,
-		ChannelId: task.ChannelId,
-		ModelName: taskModelName(task),
-		Quota:     logQuota,
-		TokenId:   task.PrivateData.TokenId,
-		Group:     task.Group,
-		Other:     other,
-		NodeName:  task.PrivateData.NodeName,
+		UserId:         task.UserId,
+		LogType:        logType,
+		Content:        reason,
+		ChannelId:      task.ChannelId,
+		ModelName:      taskModelName(task),
+		Quota:          logQuota,
+		TokenId:        task.PrivateData.TokenId,
+		Group:          task.Group,
+		Other:          other,
+		NodeName:       task.PrivateData.NodeName,
+		ChannelFinance: channelFinance,
 	})
 }
 
