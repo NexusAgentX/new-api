@@ -1121,6 +1121,8 @@
     "Cost = 10 × 1.0 = 10": "Coût = 10 × 1,0 = 10",
     "Cost = model price × that one ratio. Nothing else from the group settings enters the formula.": "Coût = prix du modèle × ce seul taux. Rien d’autre dans les réglages de groupes n’entre dans la formule.",
     "Cost = model price × that one ratio. The billing group's free-rounding switch then controls whether a positive sub-unit quota may round to zero.": "Coût = prix du modèle × ce ratio. Le commutateur d’arrondi gratuit du groupe détermine ensuite si un quota positif inférieur à une unité peut être arrondi à zéro.",
+    "Cost After Group Ratio (Before Rounding)": "Coût après coefficient de groupe (avant arrondi)",
+    "Cost Before Group Ratio": "Coût avant coefficient de groupe",
     "Cost in USD per request, regardless of tokens used.": "Coût en USD par requête, quel que soit le nombre de jetons utilisés.",
     "Cost Tracking": "Suivi des coûts",
     "Count must be between {{min}} and {{max}}": "Le nombre doit être compris entre {{min}} et {{max}}",

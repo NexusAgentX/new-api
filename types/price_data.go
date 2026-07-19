@@ -15,22 +15,24 @@ type GroupRatioInfo struct {
 }
 
 type PriceData struct {
-	FreeModel            bool
-	ModelPrice           float64
-	ModelRatio           float64
-	CompletionRatio      float64
-	CacheRatio           float64
-	CacheCreationRatio   float64
-	CacheCreation5mRatio float64
-	CacheCreation1hRatio float64
-	ImageRatio           float64
-	AudioRatio           float64
-	AudioCompletionRatio float64
-	otherRatios          map[string]float64
-	UsePrice             bool
-	Quota                int // 按次计费的最终额度（MJ / Task）
-	QuotaToPreConsume    int // 按量计费的预消耗额度
-	GroupRatioInfo       GroupRatioInfo
+	FreeModel                bool
+	ModelPrice               float64
+	ModelRatio               float64
+	CompletionRatio          float64
+	CacheRatio               float64
+	CacheCreationRatio       float64
+	CacheCreation5mRatio     float64
+	CacheCreation1hRatio     float64
+	ImageRatio               float64
+	AudioRatio               float64
+	AudioCompletionRatio     float64
+	otherRatios              map[string]float64
+	UsePrice                 bool
+	Quota                    int     // 按次计费的最终额度（MJ / Task）
+	QuotaBeforeGroup         float64 // 应用分组倍率前的未取整额度
+	QuotaAfterGroupUnrounded float64 // 应用分组倍率后的未取整额度
+	QuotaToPreConsume        int     // 按量计费的预消耗额度
+	GroupRatioInfo           GroupRatioInfo
 }
 
 func (p *PriceData) AddOtherRatio(key string, ratio float64) {

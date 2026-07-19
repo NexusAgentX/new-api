@@ -248,6 +248,10 @@ export interface LogOtherData {
  */
 export interface LogStatistics {
   quota: number
+  quota_before_group: number
+  quota_after_group_unrounded: number
+  quota_calculation_count: number
+  consume_count: number
   rpm: number
   tpm: number
 }
