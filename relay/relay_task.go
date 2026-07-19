@@ -196,6 +196,8 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 
 	// 6. 将 OtherRatios 应用到基础额度（饱和转换，防止溢出成负数）
 	if !common.StringsContains(constant.TaskPricePatches, modelName) {
+		info.PriceData.QuotaBeforeGroup = info.PriceData.ApplyOtherRatiosToFloat(info.PriceData.QuotaBeforeGroup)
+		info.PriceData.QuotaAfterGroupUnrounded = info.PriceData.ApplyOtherRatiosToFloat(info.PriceData.QuotaAfterGroupUnrounded)
 		quotaWithRatios := info.PriceData.ApplyOtherRatiosToFloat(float64(info.PriceData.Quota))
 		quota, clamp := common.QuotaFromFloatChecked(quotaWithRatios)
 		info.PriceData.Quota = common.ApplyMinimumBillableQuota(
@@ -268,12 +270,15 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 func recalcQuotaFromRatios(info *relaycommon.RelayInfo, ratios map[string]float64) (int, bool) {
 	// 从 PriceData 获取不含 OtherRatios 的基础价格
 	baseQuota := info.PriceData.RemoveOtherRatiosFromFloat(float64(info.PriceData.Quota))
+	baseQuotaBeforeGroup := info.PriceData.RemoveOtherRatiosFromFloat(info.PriceData.QuotaBeforeGroup)
 	priceData := info.PriceData
 	if !priceData.ReplaceOtherRatios(ratios) {
 		return 0, false
 	}
 	// 应用新的 ratios
 	result := priceData.ApplyOtherRatiosToFloat(baseQuota)
+	info.PriceData.QuotaBeforeGroup = priceData.ApplyOtherRatiosToFloat(baseQuotaBeforeGroup)
+	info.PriceData.QuotaAfterGroupUnrounded = info.PriceData.QuotaBeforeGroup * priceData.GroupRatioInfo.GroupRatio
 	quota, clamp := common.QuotaFromFloatChecked(result)
 	noteTaskQuotaClamp(info, clamp)
 	return common.ApplyMinimumBillableQuota(

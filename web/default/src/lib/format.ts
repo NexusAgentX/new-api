@@ -213,6 +213,15 @@ export function formatLogQuota(quota: number): string {
   })
 }
 
+/** Format unrounded billing calculations without hiding sub-quota costs. */
+export function formatPreciseLogQuota(quota: number): string {
+  return formatQuotaWithCurrency(quota, {
+    digitsLarge: 6,
+    digitsSmall: 9,
+    abbreviate: false,
+  })
+}
+
 /**
  * Format tokens count with K/M suffixes
  */

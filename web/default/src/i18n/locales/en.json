@@ -1117,6 +1117,8 @@
     "Cost = 10 × 1.0 = 10": "Cost = 10 × 1.0 = 10",
     "Cost = model price × that one ratio. Nothing else from the group settings enters the formula.": "Cost = model price × that one ratio. Nothing else from the group settings enters the formula.",
     "Cost = model price × that one ratio. The billing group's free-rounding switch then controls whether a positive sub-unit quota may round to zero.": "Cost = model price × that one ratio. The billing group's free-rounding switch then controls whether a positive sub-unit quota may round to zero.",
+    "Cost After Group Ratio (Before Rounding)": "Cost After Group Ratio (Before Rounding)",
+    "Cost Before Group Ratio": "Cost Before Group Ratio",
     "Cost in USD per request, regardless of tokens used.": "Cost in USD per request, regardless of tokens used.",
     "Cost Tracking": "Cost Tracking",
     "Count must be between {{min}} and {{max}}": "Count must be between {{min}} and {{max}}",

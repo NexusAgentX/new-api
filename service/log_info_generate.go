@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/base64"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -66,6 +67,16 @@ func appendRequestPath(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, other
 		}
 		other["request_path"] = path
 	}
+}
+
+func injectQuotaCalculationInfo(other map[string]interface{}, quotaBeforeGroup, quotaAfterGroupUnrounded float64) {
+	if other == nil || quotaBeforeGroup < 0 || quotaAfterGroupUnrounded < 0 ||
+		math.IsNaN(quotaBeforeGroup) || math.IsNaN(quotaAfterGroupUnrounded) ||
+		math.IsInf(quotaBeforeGroup, 0) || math.IsInf(quotaAfterGroupUnrounded, 0) {
+		return
+	}
+	other["quota_before_group"] = quotaBeforeGroup
+	other["quota_after_group_unrounded"] = quotaAfterGroupUnrounded
 }
 
 func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, modelRatio, groupRatio, completionRatio float64,
@@ -296,6 +307,9 @@ func GenerateMjOtherInfo(relayInfo *relaycommon.RelayInfo, priceData types.Price
 	if priceData.GroupRatioInfo.HasSpecialRatio {
 		other["user_group_ratio"] = priceData.GroupRatioInfo.GroupSpecialRatio
 	}
+	if priceData.Quota == 0 || priceData.QuotaBeforeGroup > 0 || priceData.QuotaAfterGroupUnrounded > 0 {
+		injectQuotaCalculationInfo(other, priceData.QuotaBeforeGroup, priceData.QuotaAfterGroupUnrounded)
+	}
 	appendRequestPath(nil, relayInfo, other)
 	return other
 }
@@ -315,5 +329,6 @@ func InjectTieredBillingInfo(other map[string]interface{}, relayInfo *relaycommo
 	other["expr_b64"] = base64.StdEncoding.EncodeToString([]byte(snap.ExprString))
 	if result != nil {
 		other["matched_tier"] = result.MatchedTier
+		injectQuotaCalculationInfo(other, result.ActualQuotaBeforeGroup, result.ActualQuotaAfterGroupUnrounded)
 	}
 }

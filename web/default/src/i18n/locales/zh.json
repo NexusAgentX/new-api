@@ -1117,6 +1117,8 @@
     "Cost = 10 × 1.0 = 10": "费用 = 10 × 1.0 = 10",
     "Cost = model price × that one ratio. Nothing else from the group settings enters the formula.": "费用 = 模型价格 × 这一个倍率。分组设置里的其他项都不参与该公式。",
     "Cost = model price × that one ratio. The billing group's free-rounding switch then controls whether a positive sub-unit quota may round to zero.": "费用 = 模型价格 × 该倍率。随后由计费分组的“允许取整免费”开关决定，小于 1 点的正数额度是否可取整为 0。",
+    "Cost After Group Ratio (Before Rounding)": "分组倍率后费用（取整前）",
+    "Cost Before Group Ratio": "分组倍率前费用",
     "Cost in USD per request, regardless of tokens used.": "每请求的美元费用，不考虑使用的令牌数。",
     "Cost Tracking": "成本跟踪",
     "Count must be between {{min}} and {{max}}": "计数必须介于{{min}}和{{max}}之间",

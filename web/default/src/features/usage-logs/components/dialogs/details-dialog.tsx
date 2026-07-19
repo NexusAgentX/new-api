@@ -1,3 +1,4 @@
+import type { TFunction } from 'i18next'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -31,7 +32,6 @@ import {
   Info,
   LogIn,
 } from 'lucide-react'
-import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 
 import { Dialog } from '@/components/dialog'
@@ -42,7 +42,12 @@ import { Label } from '@/components/ui/label'
 import { DynamicPricingBreakdown } from '@/features/pricing/components/dynamic-pricing-breakdown'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
-import { formatLogQuota, formatTokens, formatUseTime } from '@/lib/format'
+import {
+  formatLogQuota,
+  formatPreciseLogQuota,
+  formatTokens,
+  formatUseTime,
+} from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import type { UsageLog } from '../../data/schema'
@@ -179,7 +184,9 @@ function getUsageBillingPathLabel(
   }
 }
 
-function isUsageBillingPathLocal(adminInfo: LogOtherData['admin_info']): boolean {
+function isUsageBillingPathLocal(
+  adminInfo: LogOtherData['admin_info']
+): boolean {
   if (adminInfo?.usage_billing_path) {
     return adminInfo.usage_billing_path === USAGE_BILLING_PATH.LOCAL
   }
@@ -364,6 +371,26 @@ function BillingBreakdown(props: {
     rows.push({
       label: t('Billing Path'),
       value: getUsageBillingPathLabel(t, other.admin_info),
+    })
+  }
+
+  if (
+    other.quota_before_group != null &&
+    Number.isFinite(other.quota_before_group)
+  ) {
+    rows.push({
+      label: t('Cost Before Group Ratio'),
+      value: formatPreciseLogQuota(other.quota_before_group),
+    })
+  }
+
+  if (
+    other.quota_after_group_unrounded != null &&
+    Number.isFinite(other.quota_after_group_unrounded)
+  ) {
+    rows.push({
+      label: t('Cost After Group Ratio (Before Rounding)'),
+      value: formatPreciseLogQuota(other.quota_after_group_unrounded),
     })
   }
 

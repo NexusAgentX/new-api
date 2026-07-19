@@ -51,6 +51,9 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 		other["is_model_mapped"] = true
 		other["upstream_model_name"] = info.UpstreamModelName
 	}
+	if info.PriceData.Quota == 0 || info.PriceData.QuotaBeforeGroup > 0 || info.PriceData.QuotaAfterGroupUnrounded > 0 {
+		injectQuotaCalculationInfo(other, info.PriceData.QuotaBeforeGroup, info.PriceData.QuotaAfterGroupUnrounded)
+	}
 	attachQuotaSaturation(c, info, other)
 	model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
 		ChannelId: info.ChannelId,

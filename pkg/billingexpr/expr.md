@@ -182,7 +182,7 @@ After the upstream response returns with actual token usage:
 
 **Files**: `service/log_info_generate.go`, `web/src/helpers/render.jsx`
 
-Backend: `InjectTieredBillingInfo()` adds `billing_mode`, `expr_b64` (base64 expression), and `matched_tier` to the log's `other` JSON.
+Backend: `InjectTieredBillingInfo()` adds `billing_mode`, `expr_b64` (base64 expression), `matched_tier`, `quota_before_group`, and `quota_after_group_unrounded` to the log's `other` JSON. The two quota calculation fields preserve the actual unrounded settlement amounts before and after the group ratio; the top-level `quota` column remains the final rounded charge.
 
 Frontend: Detects `billing_mode === "tiered_expr"`, decodes `expr_b64`, parses tiers via shared `parseTiersFromExpr()`, and renders pricing breakdown.
 

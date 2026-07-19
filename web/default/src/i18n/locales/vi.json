@@ -1117,6 +1117,8 @@
     "Cost = 10 × 1.0 = 10": "Chi phí = 10 × 1.0 = 10",
     "Cost = model price × that one ratio. Nothing else from the group settings enters the formula.": "Chi phí = giá mô hình × đúng một hệ số đó. Không có mục nào khác trong cài đặt nhóm tham gia công thức.",
     "Cost = model price × that one ratio. The billing group's free-rounding switch then controls whether a positive sub-unit quota may round to zero.": "Chi phí = giá mô hình × tỷ lệ đó. Sau đó, công tắc làm tròn miễn phí của nhóm thanh toán quyết định hạn mức dương nhỏ hơn một đơn vị có được làm tròn về 0 hay không.",
+    "Cost After Group Ratio (Before Rounding)": "Chi phí sau hệ số nhóm (trước khi làm tròn)",
+    "Cost Before Group Ratio": "Chi phí trước hệ số nhóm",
     "Cost in USD per request, regardless of tokens used.": "Chi phí bằng USD cho mỗi yêu cầu, bất kể số lượng token được sử dụng.",
     "Cost Tracking": "Theo dõi chi phí",
     "Count must be between {{min}} and {{max}}": "Số lượng phải nằm trong khoảng từ {{min}} đến {{max}}.",
