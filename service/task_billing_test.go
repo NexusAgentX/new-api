@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/types"
@@ -311,6 +312,13 @@ func TestRefundTaskQuota_Wallet(t *testing.T) {
 	seedChannel(t, channelID)
 
 	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
+	channelRevenueUSD := 0.012
+	channelCostUSD := 0.006
+	channelCostRatio := 0.4
+	task.PrivateData.BillingContext.ChannelRevenueUSD = &channelRevenueUSD
+	task.PrivateData.BillingContext.ChannelCostMode = constant.ChannelCostModeUsageRatio
+	task.PrivateData.BillingContext.ChannelCostUSD = &channelCostUSD
+	task.PrivateData.BillingContext.ChannelCostRatio = &channelCostRatio
 	require.NoError(t, model.DB.Create(task).Error)
 
 	assert.True(t, RefundTaskQuota(ctx, task, "task failed: upstream error"))
@@ -330,6 +338,13 @@ func TestRefundTaskQuota_Wallet(t *testing.T) {
 	assert.Equal(t, "test-model", log.ModelName)
 	assert.Zero(t, task.Quota)
 	assert.Zero(t, getTaskQuota(t, task.ID))
+	require.NotNil(t, log.ChannelRevenueUSD)
+	require.NotNil(t, log.ChannelCostUSD)
+	require.NotNil(t, log.ChannelCostRatio)
+	assert.InDelta(t, -0.012, *log.ChannelRevenueUSD, 1e-12)
+	assert.InDelta(t, -0.006, *log.ChannelCostUSD, 1e-12)
+	assert.Equal(t, 0.4, *log.ChannelCostRatio)
+	assert.Equal(t, constant.ChannelCostModeUsageRatio, log.ChannelCostMode)
 }
 
 func TestRefundTaskQuota_Subscription(t *testing.T) {
@@ -440,6 +455,13 @@ func TestRecalculate_PositiveDelta(t *testing.T) {
 	seedChannel(t, channelID)
 
 	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
+	channelRevenueUSD := 0.02
+	channelCostUSD := 0.006
+	channelCostRatio := 0.4
+	task.PrivateData.BillingContext.ChannelRevenueUSD = &channelRevenueUSD
+	task.PrivateData.BillingContext.ChannelCostMode = constant.ChannelCostModeUsageRatio
+	task.PrivateData.BillingContext.ChannelCostUSD = &channelCostUSD
+	task.PrivateData.BillingContext.ChannelCostRatio = &channelCostRatio
 
 	RecalculateTaskQuota(ctx, task, actualQuota, "adaptor adjustment")
 
@@ -457,6 +479,12 @@ func TestRecalculate_PositiveDelta(t *testing.T) {
 	require.NotNil(t, log)
 	assert.Equal(t, model.LogTypeConsume, log.Type)
 	assert.Equal(t, actualQuota-preConsumed, log.Quota)
+	require.NotNil(t, log.ChannelRevenueUSD)
+	require.NotNil(t, log.ChannelCostUSD)
+	assert.InDelta(t, 0.01, *log.ChannelRevenueUSD, 1e-12)
+	assert.InDelta(t, 0.003, *log.ChannelCostUSD, 1e-12)
+	assert.InDelta(t, 0.03, *task.PrivateData.BillingContext.ChannelRevenueUSD, 1e-12)
+	assert.InDelta(t, 0.009, *task.PrivateData.BillingContext.ChannelCostUSD, 1e-12)
 }
 
 func TestRecalculate_NegativeDelta(t *testing.T) {
@@ -473,6 +501,13 @@ func TestRecalculate_NegativeDelta(t *testing.T) {
 	seedChannel(t, channelID)
 
 	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
+	channelRevenueUSD := 0.05
+	channelCostUSD := 0.01
+	channelCostRatio := 0.4
+	task.PrivateData.BillingContext.ChannelRevenueUSD = &channelRevenueUSD
+	task.PrivateData.BillingContext.ChannelCostMode = constant.ChannelCostModeUsageRatio
+	task.PrivateData.BillingContext.ChannelCostUSD = &channelCostUSD
+	task.PrivateData.BillingContext.ChannelCostRatio = &channelCostRatio
 
 	RecalculateTaskQuota(ctx, task, actualQuota, "adaptor adjustment")
 
@@ -490,6 +525,12 @@ func TestRecalculate_NegativeDelta(t *testing.T) {
 	require.NotNil(t, log)
 	assert.Equal(t, model.LogTypeRefund, log.Type)
 	assert.Equal(t, preConsumed-actualQuota, log.Quota)
+	require.NotNil(t, log.ChannelRevenueUSD)
+	require.NotNil(t, log.ChannelCostUSD)
+	assert.InDelta(t, -0.02, *log.ChannelRevenueUSD, 1e-12)
+	assert.InDelta(t, -0.004, *log.ChannelCostUSD, 1e-12)
+	assert.InDelta(t, 0.03, *task.PrivateData.BillingContext.ChannelRevenueUSD, 1e-12)
+	assert.InDelta(t, 0.006, *task.PrivateData.BillingContext.ChannelCostUSD, 1e-12)
 }
 
 func TestRecalculate_ZeroDelta(t *testing.T) {

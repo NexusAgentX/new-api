@@ -84,6 +84,10 @@ func TestClickHouseLogCreateTableSQL(t *testing.T) {
 	assert.Contains(t, withoutTTL, "PARTITION BY toYYYYMM(toDateTime(created_at))")
 	assert.Contains(t, withoutTTL, "quota_before_group Nullable(Decimal(30, 12))")
 	assert.Contains(t, withoutTTL, "quota_after_group_unrounded Nullable(Decimal(30, 12))")
+	assert.Contains(t, withoutTTL, "channel_revenue_usd Nullable(Decimal(30, 12))")
+	assert.Contains(t, withoutTTL, "channel_cost_usd Nullable(Decimal(30, 12))")
+	assert.Contains(t, withoutTTL, "channel_cost_ratio Nullable(Decimal(20, 12))")
+	assert.Contains(t, withoutTTL, "channel_cost_mode String DEFAULT ''")
 	assert.Contains(t, withoutTTL, "ORDER BY (created_at, request_id)")
 	assert.NotContains(t, withoutTTL, "TTL ")
 
@@ -98,6 +102,16 @@ func TestClickHouseLogQuotaCalculationColumnStatements(t *testing.T) {
 	require.Len(t, statements, 2)
 	assert.Contains(t, statements[0], "ADD COLUMN IF NOT EXISTS quota_before_group Nullable(Decimal(30, 12))")
 	assert.Contains(t, statements[1], "ADD COLUMN IF NOT EXISTS quota_after_group_unrounded Nullable(Decimal(30, 12))")
+}
+
+func TestClickHouseLogFinanceColumnStatements(t *testing.T) {
+	statements := clickHouseLogFinanceColumnStatements()
+
+	require.Len(t, statements, 4)
+	assert.Contains(t, statements[0], "channel_revenue_usd Nullable(Decimal(30, 12))")
+	assert.Contains(t, statements[1], "channel_cost_usd Nullable(Decimal(30, 12))")
+	assert.Contains(t, statements[2], "channel_cost_ratio Nullable(Decimal(20, 12))")
+	assert.Contains(t, statements[3], "channel_cost_mode String DEFAULT ''")
 }
 
 func TestClickHouseCreateTableHasTTL(t *testing.T) {

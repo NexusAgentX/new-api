@@ -16,10 +16,31 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-export * from './channel-advanced-section'
-export * from './channel-api-access-section'
-export * from './channel-auth-section'
-export * from './channel-basic-section'
-export * from './channel-editor-loading-state'
-export * from './channel-finance-section'
-export * from './channel-models-section'
+import { CircleDollarSign } from 'lucide-react'
+import type { ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
+
+import {
+  SideDrawerSection,
+  SideDrawerSectionHeader,
+} from '@/components/drawer-layout'
+
+type ChannelFinanceSectionProps = {
+  children: ReactNode
+}
+
+export function ChannelFinanceSection(props: ChannelFinanceSectionProps) {
+  const { t } = useTranslation()
+
+  return (
+    <SideDrawerSection>
+      <SideDrawerSectionHeader
+        title={t('Channel Cost')}
+        description={t('Configure the current upstream cost calculation.')}
+        icon={<CircleDollarSign className='h-4 w-4' aria-hidden='true' />}
+        iconTone='success'
+      />
+      {props.children}
+    </SideDrawerSection>
+  )
+}

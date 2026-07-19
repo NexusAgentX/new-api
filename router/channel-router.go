@@ -20,6 +20,8 @@ func registerChannelRoutes(apiRouter *gin.RouterGroup) {
 	channelRoute := apiRouter.Group("/channel")
 	channelRoute.Use(middleware.AdminAuth())
 
+	channelRoute.GET("/finance", middleware.RootAuth(), controller.GetChannelFinance)
+
 	channelRoute.POST("/:id/key",
 		middleware.RootAuth(),
 		middleware.CriticalRateLimit(),
