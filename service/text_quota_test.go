@@ -55,6 +55,9 @@ func TestCalculateTextQuotaSummaryHonorsGroupZeroQuotaSetting(t *testing.T) {
 			summary := calculateTextQuotaSummary(ctx, relayInfo, usage)
 
 			require.Equal(t, tt.want, summary.Quota)
+			require.True(t, summary.HasQuotaCalculation)
+			require.InDelta(t, 1, summary.QuotaBeforeGroup.InexactFloat64(), 1e-12)
+			require.InDelta(t, tt.groupRatio, summary.QuotaAfterGroupUnrounded.InexactFloat64(), 1e-12)
 		})
 	}
 }
@@ -669,6 +672,7 @@ func TestComposeTieredTextQuotaFallbackKeepsToolCallSurcharges(t *testing.T) {
 	summary := calculateTextQuotaSummary(ctx, relayInfo, usage)
 	quota := composeTieredTextQuota(relayInfo, summary, 1250, nil)
 
+	require.Equal(t, int64(10000), summary.ToolCallSurchargeQuotaBeforeGroup.Round(0).IntPart())
 	require.Equal(t, int64(12500), summary.ToolCallSurchargeQuota.Round(0).IntPart())
 	require.Equal(t, 13750, quota)
 }

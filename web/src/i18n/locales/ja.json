@@ -1115,6 +1115,8 @@
     "Cost = 10 × 1.0 = 10": "費用 = 10 × 1.0 = 10",
     "Cost = model price × that one ratio. Nothing else from the group settings enters the formula.": "費用 = モデル価格 × この1つの倍率。グループ設定の他の項目は計算式に入りません。",
     "Cost = model price × that one ratio. The billing group's free-rounding switch then controls whether a positive sub-unit quota may round to zero.": "料金 = モデル価格 × その倍率です。その後、課金グループの無料丸めスイッチにより、1 未満の正のクォータを 0 に丸められるかが決まります。",
+    "Cost After Group Ratio (Before Rounding)": "グループ倍率適用後の費用（丸め前）",
+    "Cost Before Group Ratio": "グループ倍率適用前の費用",
     "Cost in USD per request, regardless of tokens used.": "使用されたトークンに関係なく、リクエストあたりのUSDでのコスト。",
     "Cost Tracking": "コスト追跡",
     "Count must be between {{min}} and {{max}}": "カウントは{{min}}から{{max}}の間である必要があります",

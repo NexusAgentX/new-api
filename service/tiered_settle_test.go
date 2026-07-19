@@ -338,14 +338,36 @@ func TestTryTieredSettle_NoRequestInput_FallsBackToDefault(t *testing.T) {
 func TestTryTieredSettle_GroupRatioScaling(t *testing.T) {
 	info := makeRelayInfo(flatExpr, 1.5, 1000, 500)
 
-	ok, quota, _ := TryTieredSettle(info, billingexpr.TokenParams{P: 1000, C: 500})
-	if !ok {
-		t.Fatal("expected tiered settle")
-	}
+	ok, quota, result := TryTieredSettle(info, billingexpr.TokenParams{P: 1000, C: 500})
+	require.True(t, ok)
 	// exprCost = 7000, quotaBeforeGroup = 3500, afterGroup = round(3500 * 1.5) = 5250
-	if quota != 5250 {
-		t.Fatalf("quota = %d, want 5250", quota)
-	}
+	assert.Equal(t, 5250, quota)
+	require.NotNil(t, result)
+	assert.InDelta(t, 3500, result.ActualQuotaBeforeGroup, 1e-12)
+	assert.InDelta(t, 5250, result.ActualQuotaAfterGroupUnrounded, 1e-12)
+
+	other := map[string]interface{}{}
+	InjectTieredBillingInfo(other, info, result)
+	assert.NotContains(t, other, "quota_before_group")
+	assert.NotContains(t, other, "quota_after_group_unrounded")
+}
+
+func TestTryTieredSettle_ReturnsUnroundedCostWhenMinimumQuotaApplies(t *testing.T) {
+	const grokExpr = `tier("short-context", p * 2 + c * 6)`
+	const groupRatio = 0.0001617647
+	info := makeRelayInfo(grokExpr, groupRatio, 198, 17)
+
+	ok, quota, result := TryTieredSettle(info, billingexpr.TokenParams{P: 198, C: 17})
+	require.True(t, ok)
+	assert.Equal(t, 1, quota)
+	require.NotNil(t, result)
+	assert.InDelta(t, 249, result.ActualQuotaBeforeGroup, 1e-12)
+	assert.InDelta(t, 249*groupRatio, result.ActualQuotaAfterGroupUnrounded, 1e-12)
+
+	other := map[string]interface{}{}
+	InjectTieredBillingInfo(other, info, result)
+	assert.NotContains(t, other, "quota_before_group")
+	assert.NotContains(t, other, "quota_after_group_unrounded")
 }
 
 func TestTryTieredSettle_GroupRatioZero(t *testing.T) {
