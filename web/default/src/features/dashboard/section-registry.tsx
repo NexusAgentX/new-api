@@ -45,11 +45,18 @@ const DASHBOARD_SECTIONS = [
     adminOnly: true,
     build: () => null,
   },
+  {
+    id: 'finance',
+    titleKey: 'Channel Finance',
+    rootOnly: true,
+    build: () => null,
+  },
 ] as const
 
 export type DashboardSectionId = (typeof DASHBOARD_SECTIONS)[number]['id']
 
 const ADMIN_ONLY_SECTIONS = new Set<string>(['users'])
+const ROOT_ONLY_SECTIONS = new Set<string>(['finance'])
 
 const dashboardRegistry = createSectionRegistry<
   DashboardSectionId,
@@ -67,11 +74,13 @@ export const DASHBOARD_DEFAULT_SECTION = dashboardRegistry.defaultSection
 
 export function getDashboardSectionNavItems(
   t: TFunction,
-  options?: { isAdmin?: boolean }
+  options?: { isAdmin?: boolean; isRoot?: boolean }
 ) {
   const all = dashboardRegistry.getSectionNavItems(t)
-  if (options?.isAdmin) return all
-  return all.filter(
-    (_, idx) => !ADMIN_ONLY_SECTIONS.has(DASHBOARD_SECTIONS[idx].id)
-  )
+  return all.filter((_, idx) => {
+    const sectionId = DASHBOARD_SECTIONS[idx].id
+    if (ROOT_ONLY_SECTIONS.has(sectionId)) return options?.isRoot === true
+    if (ADMIN_ONLY_SECTIONS.has(sectionId)) return options?.isAdmin === true
+    return true
+  })
 }

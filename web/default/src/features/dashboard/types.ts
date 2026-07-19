@@ -210,6 +210,38 @@ export interface UserChartsFilters {
   topUserLimit: number
 }
 
+export type ChannelFinanceGranularity = 'day' | 'week' | 'month'
+
+export interface ChannelFinanceSummary {
+  revenue_usd: number
+  variable_cost_usd: number
+  fixed_cost_usd: number
+  cost_usd: number
+  profit_usd: number
+  margin: number
+  request_count: number
+  missing_revenue_count: number
+  missing_cost_count: number
+}
+
+export interface ChannelFinancePeriod extends ChannelFinanceSummary {
+  period_start: number
+}
+
+export interface ChannelFinanceChannel extends ChannelFinanceSummary {
+  channel_id: number
+  channel_name: string
+  cost_mode: 'none' | 'fixed_daily' | 'usage_ratio'
+  cost_setting: number
+  periods: ChannelFinancePeriod[]
+}
+
+export interface ChannelFinanceReport {
+  summary: ChannelFinanceSummary
+  periods: ChannelFinancePeriod[]
+  channels: ChannelFinanceChannel[]
+}
+
 // ============================================================================
 // API Info Types
 // ============================================================================

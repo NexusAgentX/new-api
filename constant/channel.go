@@ -1,6 +1,15 @@
 package constant
 
 const (
+	ChannelCostModeNone       = "none"
+	ChannelCostModeFixedDaily = "fixed_daily"
+	ChannelCostModeUsageRatio = "usage_ratio"
+
+	MaxChannelFixedDailyCostUSD = 1_000_000_000
+	MaxChannelUsageCostRatio    = 1_000
+)
+
+const (
 	ChannelTypeUnknown        = 0
 	ChannelTypeOpenAI         = 1
 	ChannelTypeMidjourney     = 2

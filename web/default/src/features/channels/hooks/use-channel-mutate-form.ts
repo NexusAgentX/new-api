@@ -25,6 +25,7 @@ import {
   ADMIN_PERMISSION_RESOURCES,
   hasPermission,
 } from '@/lib/admin-permissions'
+import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { createChannel, updateChannel } from '../api'
@@ -43,6 +44,12 @@ type UseChannelMutateFormParams = {
   onSuccess: () => void
 }
 
+const CHANNEL_FINANCE_FIELDS = [
+  'cost_mode',
+  'fixed_daily_cost_usd',
+  'usage_cost_ratio',
+] satisfies (keyof Channel)[]
+
 const SENSITIVE_UPDATE_FIELDS = [
   'type',
   'key',
@@ -53,6 +60,7 @@ const SENSITIVE_UPDATE_FIELDS = [
   'setting',
   'settings',
   'other',
+  ...CHANNEL_FINANCE_FIELDS,
 ] satisfies (keyof Channel)[]
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -88,6 +96,7 @@ export function useChannelMutateForm(props: UseChannelMutateFormParams) {
     ADMIN_PERMISSION_RESOURCES.CHANNEL,
     ADMIN_PERMISSION_ACTIONS.SENSITIVE_WRITE
   )
+  const canManageChannelFinance = currentUser?.role === ROLE.SUPER_ADMIN
 
   return useMutation({
     mutationFn: async (data: ChannelFormValues): Promise<string> => {
@@ -101,6 +110,11 @@ export function useChannelMutateForm(props: UseChannelMutateFormParams) {
         }
         if (!canEditSensitive) {
           for (const field of SENSITIVE_UPDATE_FIELDS) {
+            delete payload[field]
+          }
+        }
+        if (!canManageChannelFinance) {
+          for (const field of CHANNEL_FINANCE_FIELDS) {
             delete payload[field]
           }
         }
@@ -126,6 +140,11 @@ export function useChannelMutateForm(props: UseChannelMutateFormParams) {
       }
 
       const payload = transformFormDataToCreatePayload(data)
+      if (!canManageChannelFinance) {
+        for (const field of CHANNEL_FINANCE_FIELDS) {
+          delete payload.channel[field]
+        }
+      }
       const response = await createChannel(payload)
       if (!response.success) {
         throw new Error(response.message || t(ERROR_MESSAGES.CREATE_FAILED))

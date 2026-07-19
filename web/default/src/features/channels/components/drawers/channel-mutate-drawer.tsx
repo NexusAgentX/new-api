@@ -24,6 +24,7 @@ import {
   Boxes,
   CheckCircle2,
   Circle,
+  CircleDollarSign,
   ClipboardPaste,
   HelpCircle,
   KeyRound,
@@ -100,6 +101,7 @@ import {
 } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import {
   Tooltip,
@@ -187,6 +189,7 @@ import {
   ChannelAuthSection,
   ChannelBasicSection,
   ChannelEditorLoadingState,
+  ChannelFinanceSection,
   ChannelModelsSection,
 } from './sections'
 
@@ -241,12 +244,14 @@ const MODEL_MAPPING_PREVIEW_FALLBACK: Array<{
 const ADVANCED_SETTINGS_EXPANDED_KEY = 'channel-advanced-settings-expanded'
 const CHANNEL_EDITOR_SECTION_IDS = {
   identity: 'channel-section-identity',
+  finance: 'channel-section-finance',
   credentials: 'channel-section-credentials',
   models: 'channel-section-models',
   advanced: 'channel-section-advanced',
 } as const
 const CHANNEL_EDITOR_MAIN_SECTION_IDS = [
   CHANNEL_EDITOR_SECTION_IDS.identity,
+  CHANNEL_EDITOR_SECTION_IDS.finance,
   CHANNEL_EDITOR_SECTION_IDS.credentials,
   CHANNEL_EDITOR_SECTION_IDS.models,
   CHANNEL_EDITOR_SECTION_IDS.advanced,
@@ -270,6 +275,9 @@ const SENSITIVE_FORM_FIELDS = [
   'key',
   'openai_organization',
   'other',
+  'cost_mode',
+  'fixed_daily_cost_usd',
+  'usage_cost_ratio',
   'key_mode',
   'param_override',
   'header_override',
@@ -612,6 +620,7 @@ export function ChannelMutateDrawer({
     ADMIN_PERMISSION_ACTIONS.SENSITIVE_WRITE
   )
   const canRevealChannelKey = currentUser?.role === ROLE.SUPER_ADMIN
+  const canManageChannelFinance = currentUser?.role === ROLE.SUPER_ADMIN
   const [fetchModelsDialogOpen, setFetchModelsDialogOpen] = useState(false)
   const [channelKey, setChannelKey] = useState<string | null>(null)
   const [isChannelKeyLoading, setIsChannelKeyLoading] = useState(false)
@@ -720,6 +729,7 @@ export function ChannelMutateDrawer({
   const currentOther = form.watch('other')
   const currentModels = form.watch('models')
   const currentName = form.watch('name')
+  const currentCostMode = form.watch('cost_mode')
   const currentModelMapping = form.watch('model_mapping')
   const awsKeyType = form.watch('aws_key_type')
   const vertexKeyType = form.watch('vertex_key_type')
@@ -939,6 +949,11 @@ export function ChannelMutateDrawer({
     formErrors.status ||
     formErrors.openai_organization
   )
+  const financeHasErrors = Boolean(
+    formErrors.cost_mode ||
+    formErrors.fixed_daily_cost_usd ||
+    formErrors.usage_cost_ratio
+  )
   const credentialsHaveErrors = Boolean(
     formErrors.key ||
     formErrors.base_url ||
@@ -980,6 +995,19 @@ export function ChannelMutateDrawer({
     identityHasErrors,
     identityComplete
   )
+  const financeConfigured = currentCostMode !== 'none'
+  let financeStatus: ChannelEditorSectionStatus = 'idle'
+  let financeSummary = t('Not configured')
+  if (financeHasErrors) {
+    financeStatus = 'error'
+    financeSummary = t('Error')
+  } else if (currentCostMode === 'fixed_daily') {
+    financeStatus = 'configured'
+    financeSummary = t('Fixed Daily Cost')
+  } else if (currentCostMode === 'usage_ratio') {
+    financeStatus = 'configured'
+    financeSummary = t('Usage Cost Ratio')
+  }
   const credentialsStatus = getCompletionStatus(
     credentialsHaveErrors,
     credentialsComplete
@@ -1087,6 +1115,19 @@ export function ChannelMutateDrawer({
       status: identityStatus,
       icon: <Server className='h-4 w-4' aria-hidden='true' />,
     },
+    ...(canManageChannelFinance
+      ? [
+          {
+            id: CHANNEL_EDITOR_SECTION_IDS.finance,
+            title: t('Channel Cost'),
+            description: financeSummary,
+            statusLabel: financeSummary,
+            status: financeStatus,
+            icon: <CircleDollarSign className='h-4 w-4' aria-hidden='true' />,
+            configured: financeConfigured,
+          },
+        ]
+      : []),
     {
       id: CHANNEL_EDITOR_SECTION_IDS.credentials,
       title: t('Credentials'),
@@ -2074,6 +2115,114 @@ export function ChannelMutateDrawer({
                         )}
                       </ChannelBasicSection>
                     </div>
+
+                    {/* ── Channel Cost ── */}
+                    {canManageChannelFinance && (
+                      <div
+                        id={CHANNEL_EDITOR_SECTION_IDS.finance}
+                        className='scroll-mt-4'
+                      >
+                        <ChannelFinanceSection>
+                          <fieldset
+                            disabled={sensitiveLocked}
+                            className='space-y-4 disabled:opacity-60'
+                          >
+                            <FormField
+                              control={form.control}
+                              name='cost_mode'
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>{t('Cost Mode')}</FormLabel>
+                                  <FormControl>
+                                    <Tabs
+                                      value={field.value}
+                                      onValueChange={field.onChange}
+                                    >
+                                      <TabsList className='grid h-auto w-full grid-cols-3'>
+                                        <TabsTrigger value='none'>
+                                          {t('Not configured')}
+                                        </TabsTrigger>
+                                        <TabsTrigger value='fixed_daily'>
+                                          {t('Fixed Daily Cost')}
+                                        </TabsTrigger>
+                                        <TabsTrigger value='usage_ratio'>
+                                          {t('Usage Cost Ratio')}
+                                        </TabsTrigger>
+                                      </TabsList>
+                                    </Tabs>
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+
+                            {currentCostMode === 'fixed_daily' && (
+                              <FormField
+                                control={form.control}
+                                name='fixed_daily_cost_usd'
+                                render={({ field }) => (
+                                  <FormItem className='max-w-sm'>
+                                    <FormLabel>
+                                      {t('Fixed Daily Cost (USD)')}
+                                    </FormLabel>
+                                    <FormControl>
+                                      <Input
+                                        type='number'
+                                        min={0}
+                                        max={1_000_000_000}
+                                        step='0.000001'
+                                        inputMode='decimal'
+                                        {...field}
+                                        onChange={(event) =>
+                                          field.onChange(
+                                            event.target.value === ''
+                                              ? 0
+                                              : Number(event.target.value)
+                                          )
+                                        }
+                                      />
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            )}
+
+                            {currentCostMode === 'usage_ratio' && (
+                              <FormField
+                                control={form.control}
+                                name='usage_cost_ratio'
+                                render={({ field }) => (
+                                  <FormItem className='max-w-sm'>
+                                    <FormLabel>
+                                      {t('Usage Cost Ratio')}
+                                    </FormLabel>
+                                    <FormControl>
+                                      <Input
+                                        type='number'
+                                        min={0}
+                                        max={1_000}
+                                        step='0.000001'
+                                        inputMode='decimal'
+                                        {...field}
+                                        onChange={(event) =>
+                                          field.onChange(
+                                            event.target.value === ''
+                                              ? 0
+                                              : Number(event.target.value)
+                                          )
+                                        }
+                                      />
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            )}
+                          </fieldset>
+                        </ChannelFinanceSection>
+                      </div>
+                    )}
 
                     {/* ── API Access ── */}
                     <div

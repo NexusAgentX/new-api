@@ -63,6 +63,12 @@ export const channelSchema = z.object({
   param_override: z.string().nullish(),
   header_override: z.string().nullish(),
   remark: z.string().default(''),
+  cost_mode: z
+    .enum(['none', 'fixed_daily', 'usage_ratio'])
+    .catch('none')
+    .default('none'),
+  fixed_daily_cost_usd: z.number().default(0),
+  usage_cost_ratio: z.number().default(0),
   max_input_tokens: z.number().default(0),
   channel_info: channelInfoSchema.default({
     is_multi_key: false,
@@ -354,6 +360,9 @@ export interface ChannelFormData {
   status_code_mapping?: string
   tag?: string
   remark?: string
+  cost_mode: 'none' | 'fixed_daily' | 'usage_ratio'
+  fixed_daily_cost_usd: number
+  usage_cost_ratio: number
   setting?: string
   param_override?: string
   header_override?: string

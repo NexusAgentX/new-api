@@ -69,6 +69,10 @@ type Log struct {
 	Quota                    int      `json:"quota" gorm:"default:0"`
 	QuotaBeforeGroup         *float64 `json:"quota_before_group,omitempty" gorm:"type:decimal(30,12)"`
 	QuotaAfterGroupUnrounded *float64 `json:"quota_after_group_unrounded,omitempty" gorm:"type:decimal(30,12)"`
+	ChannelRevenueUSD        *float64 `json:"channel_revenue_usd,omitempty" gorm:"type:decimal(30,12)"`
+	ChannelCostUSD           *float64 `json:"channel_cost_usd,omitempty" gorm:"type:decimal(30,12)"`
+	ChannelCostRatio         *float64 `json:"channel_cost_ratio,omitempty" gorm:"type:decimal(20,12)"`
+	ChannelCostMode          string   `json:"channel_cost_mode,omitempty" gorm:"type:varchar(16)"`
 	PromptTokens             int      `json:"prompt_tokens" gorm:"default:0"`
 	CompletionTokens         int      `json:"completion_tokens" gorm:"default:0"`
 	UseTime                  int      `json:"use_time" gorm:"default:0"`
@@ -355,9 +359,15 @@ type RecordConsumeLogParams struct {
 	Other                    map[string]interface{} `json:"other"`
 }
 
-func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams) {
+func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams) ChannelFinanceValues {
+	quotaBeforeGroup, quotaAfterGroupUnrounded := quotaCalculationPointers(
+		params.HasQuotaCalculation,
+		params.QuotaBeforeGroup,
+		params.QuotaAfterGroupUnrounded,
+	)
+	channelFinance := calculateChannelFinanceValues(LogTypeConsume, params.ChannelId, params.Quota, quotaBeforeGroup)
 	if !common.LogConsumeEnabled {
-		return
+		return channelFinance
 	}
 	logger.LogInfo(c, fmt.Sprintf("record consume log: userId=%d, params=%s", userId, common.GetJsonString(params)))
 	username := c.GetString("username")
@@ -365,11 +375,6 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 	upstreamRequestId := c.GetString(common.UpstreamRequestIdKey)
 	createdAt := common.GetTimestamp()
 	otherStr := common.MapToJsonStr(params.Other)
-	quotaBeforeGroup, quotaAfterGroupUnrounded := quotaCalculationPointers(
-		params.HasQuotaCalculation,
-		params.QuotaBeforeGroup,
-		params.QuotaAfterGroupUnrounded,
-	)
 	// 判断是否需要记录 IP
 	needRecordIp := false
 	if settingMap, err := GetUserSetting(userId, false); err == nil {
@@ -390,6 +395,10 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 		Quota:                    params.Quota,
 		QuotaBeforeGroup:         quotaBeforeGroup,
 		QuotaAfterGroupUnrounded: quotaAfterGroupUnrounded,
+		ChannelRevenueUSD:        channelFinance.RevenueUSD,
+		ChannelCostUSD:           channelFinance.CostUSD,
+		ChannelCostRatio:         channelFinance.CostRatio,
+		ChannelCostMode:          channelFinance.CostMode,
 		ChannelId:                params.ChannelId,
 		TokenId:                  params.TokenId,
 		UseTime:                  params.UseTimeSeconds,
@@ -423,6 +432,7 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 			NodeName:  common.NodeName,
 		})
 	}
+	return channelFinance
 }
 
 type RecordTaskBillingLogParams struct {
@@ -439,6 +449,7 @@ type RecordTaskBillingLogParams struct {
 	Group                    string
 	Other                    map[string]interface{}
 	NodeName                 string // 任务发起节点；为空时回退当前节点
+	ChannelFinance           *ChannelFinanceValues
 }
 
 func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
@@ -458,6 +469,13 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 		params.QuotaBeforeGroup,
 		params.QuotaAfterGroupUnrounded,
 	)
+	channelFinance := calculateChannelFinanceValues(params.LogType, params.ChannelId, params.Quota, quotaBeforeGroup)
+	if params.ChannelFinance != nil {
+		channelFinance.RevenueUSD = params.ChannelFinance.RevenueUSD
+		channelFinance.CostUSD = params.ChannelFinance.CostUSD
+		channelFinance.CostRatio = params.ChannelFinance.CostRatio
+		channelFinance.CostMode = params.ChannelFinance.CostMode
+	}
 	log := &Log{
 		UserId:                   params.UserId,
 		Username:                 username,
@@ -469,6 +487,10 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 		Quota:                    params.Quota,
 		QuotaBeforeGroup:         quotaBeforeGroup,
 		QuotaAfterGroupUnrounded: quotaAfterGroupUnrounded,
+		ChannelRevenueUSD:        channelFinance.RevenueUSD,
+		ChannelCostUSD:           channelFinance.CostUSD,
+		ChannelCostRatio:         channelFinance.CostRatio,
+		ChannelCostMode:          channelFinance.CostMode,
 		ChannelId:                params.ChannelId,
 		TokenId:                  params.TokenId,
 		Group:                    params.Group,

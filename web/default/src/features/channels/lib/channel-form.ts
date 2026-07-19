@@ -161,6 +161,9 @@ export const channelFormSchema = z
       .string()
       .max(255, 'Remark must be less than 255 characters')
       .optional(),
+    cost_mode: z.enum(['none', 'fixed_daily', 'usage_ratio']),
+    fixed_daily_cost_usd: z.number().min(0).max(1_000_000_000),
+    usage_cost_ratio: z.number().min(0).max(1_000),
     setting: z
       .string()
       .optional()
@@ -315,6 +318,9 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   status_code_mapping: '',
   tag: '',
   remark: '',
+  cost_mode: 'none',
+  fixed_daily_cost_usd: 0,
+  usage_cost_ratio: 0,
   setting: '',
   param_override: '',
   header_override: '',
@@ -456,6 +462,9 @@ export function transformChannelToFormDefaults(
     status_code_mapping: channel.status_code_mapping || '',
     tag: channel.tag || '',
     remark: channel.remark || '',
+    cost_mode: channel.cost_mode || 'none',
+    fixed_daily_cost_usd: channel.fixed_daily_cost_usd || 0,
+    usage_cost_ratio: channel.usage_cost_ratio || 0,
     setting: channel.setting || '',
     param_override: channel.param_override || '',
     header_override: channel.header_override || '',
@@ -564,12 +573,15 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
     settingsObj.allow_inference_geo = formData.allow_inference_geo === true
   } else {
     if ('disable_store' in settingsObj) delete settingsObj.disable_store
-    if ('allow_safety_identifier' in settingsObj)
+    if ('allow_safety_identifier' in settingsObj) {
       delete settingsObj.allow_safety_identifier
-    if ('allow_include_obfuscation' in settingsObj)
+    }
+    if ('allow_include_obfuscation' in settingsObj) {
       delete settingsObj.allow_include_obfuscation
-    if (formData.type !== 14 && 'allow_inference_geo' in settingsObj)
+    }
+    if (formData.type !== 14 && 'allow_inference_geo' in settingsObj) {
       delete settingsObj.allow_inference_geo
+    }
   }
 
   // Anthropic (type 14): claude_beta_query, allow_inference_geo, allow_speed
@@ -592,14 +604,14 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
     settingsObj.upstream_model_update_auto_sync_enabled =
       settingsObj.upstream_model_update_check_enabled === true &&
       formData.upstream_model_update_auto_sync_enabled === true
-    settingsObj.upstream_model_update_ignored_models = Array.from(
-      new Set(
+    settingsObj.upstream_model_update_ignored_models = [
+      ...new Set(
         String(formData.upstream_model_update_ignored_models || '')
           .split(',')
           .map((model) => model.trim())
           .filter(Boolean)
-      )
-    )
+      ),
+    ]
     if (
       !Array.isArray(settingsObj.upstream_model_update_last_detected_models) ||
       settingsObj.upstream_model_update_check_enabled !== true
@@ -659,6 +671,9 @@ export function transformFormDataToCreatePayload(formData: ChannelFormValues): {
     status_code_mapping: formData.status_code_mapping || null,
     tag: formData.tag || null,
     remark: formData.remark || '',
+    cost_mode: formData.cost_mode,
+    fixed_daily_cost_usd: formData.fixed_daily_cost_usd,
+    usage_cost_ratio: formData.usage_cost_ratio,
     setting: buildSettingJSON(formData),
     param_override: formData.param_override || null,
     header_override: formData.header_override || null,
@@ -706,6 +721,9 @@ export function transformFormDataToUpdatePayload(
     status_code_mapping: formData.status_code_mapping || null,
     tag: formData.tag || null,
     remark: formData.remark || '',
+    cost_mode: formData.cost_mode,
+    fixed_daily_cost_usd: formData.fixed_daily_cost_usd,
+    usage_cost_ratio: formData.usage_cost_ratio,
     setting: buildSettingJSON(formData),
     param_override: formData.param_override || null,
     header_override: formData.header_override || null,

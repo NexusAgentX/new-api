@@ -61,6 +61,17 @@ func TestChannelHasSensitiveChanges(t *testing.T) {
 		assert.True(t, channelHasSensitiveChanges(&updated, origin, map[string]any{"header_override": newHeaderOverride}))
 	})
 
+	t.Run("channel cost change", func(t *testing.T) {
+		updated := PatchChannel{Channel: *origin}
+		updated.CostMode = "usage_ratio"
+		updated.UsageCostRatio = 0.4
+
+		assert.True(t, channelHasSensitiveChanges(&updated, origin, map[string]any{
+			"cost_mode":        updated.CostMode,
+			"usage_cost_ratio": updated.UsageCostRatio,
+		}))
+	})
+
 	t.Run("omitted sensitive fields do not use zero values", func(t *testing.T) {
 		updated := PatchChannel{}
 		updated.Id = origin.Id
@@ -96,6 +107,51 @@ func TestChannelHasSensitiveChanges(t *testing.T) {
 	})
 }
 
+func TestPreserveOmittedChannelCostConfigSupportsPartialUpdates(t *testing.T) {
+	origin := &model.Channel{
+		CostMode:          "usage_ratio",
+		UsageCostRatio:    0.4,
+		FixedDailyCostUSD: 0,
+	}
+	updated := &model.Channel{UsageCostRatio: 0.3}
+
+	preserveOmittedChannelCostConfig(updated, origin, map[string]any{
+		"usage_cost_ratio": updated.UsageCostRatio,
+	})
+
+	assert.Equal(t, "usage_ratio", updated.CostMode)
+	assert.Equal(t, 0.3, updated.UsageCostRatio)
+	assert.Zero(t, updated.FixedDailyCostUSD)
+	require.NoError(t, updated.ValidateCostConfig())
+}
+
+func TestClearChannelFinanceInfoIsRootOnly(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	channel := func() *model.Channel {
+		return &model.Channel{
+			CostMode:          "fixed_daily",
+			FixedDailyCostUSD: 12.5,
+			UsageCostRatio:    0.4,
+		}
+	}
+
+	adminContext, _ := gin.CreateTestContext(httptest.NewRecorder())
+	adminContext.Set("role", common.RoleAdminUser)
+	adminChannel := channel()
+	clearChannelFinanceInfo(adminContext, adminChannel)
+	assert.Empty(t, adminChannel.CostMode)
+	assert.Zero(t, adminChannel.FixedDailyCostUSD)
+	assert.Zero(t, adminChannel.UsageCostRatio)
+
+	rootContext, _ := gin.CreateTestContext(httptest.NewRecorder())
+	rootContext.Set("role", common.RoleRootUser)
+	rootChannel := channel()
+	clearChannelFinanceInfo(rootContext, rootChannel)
+	assert.Equal(t, "fixed_daily", rootChannel.CostMode)
+	assert.Equal(t, 12.5, rootChannel.FixedDailyCostUSD)
+	assert.Equal(t, 0.4, rootChannel.UsageCostRatio)
+}
+
 func TestClearChannelReadOnlyFields(t *testing.T) {
 	channel := PatchChannel{Channel: model.Channel{
 		CreatedTime:        11,
@@ -127,6 +183,28 @@ func TestClearChannelReadOnlyFields(t *testing.T) {
 	assert.Zero(t, channel.UsedQuota)
 	assert.Equal(t, "gpt-4o", channel.Models)
 	assert.Equal(t, "default", channel.Group)
+}
+
+func TestUpdateChannelRejectsChannelCostFieldsForNonRoot(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Set("role", common.RoleAdminUser)
+	ctx.Request = httptest.NewRequest(
+		http.MethodPut,
+		"/api/channel/",
+		bytes.NewBufferString(`{"id":1,"usage_cost_ratio":0.4}`),
+	)
+	ctx.Request.Header.Set("Content-Type", "application/json")
+
+	UpdateChannel(ctx)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var response struct {
+		Success bool `json:"success"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.False(t, response.Success)
 }
 
 func TestUpdateChannelRejectsStatusField(t *testing.T) {

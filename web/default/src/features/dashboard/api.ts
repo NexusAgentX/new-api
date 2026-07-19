@@ -19,6 +19,8 @@ For commercial licensing, please contact support@quantumnous.com
 import { api } from '@/lib/api'
 
 import type {
+  ChannelFinanceGranularity,
+  ChannelFinanceReport,
   FlowQuotaDataItem,
   QuotaDataItem,
   UptimeGroupResult,
@@ -48,6 +50,19 @@ export async function getUserQuotaDates(
     endpoint,
     { params }
   )
+  return res.data
+}
+
+export async function getChannelFinance(params: {
+  start_timestamp: number
+  end_timestamp: number
+  granularity: ChannelFinanceGranularity
+  timezone: string
+}) {
+  const res = await api.get<{
+    success: boolean
+    data: ChannelFinanceReport
+  }>('/api/channel/finance', { params })
   return res.data
 }
 

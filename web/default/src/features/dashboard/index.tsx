@@ -18,7 +18,14 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { getRouteApi, useNavigate } from '@tanstack/react-router'
 import { Eye, EyeOff } from 'lucide-react'
-import { useState, useCallback, useMemo, lazy, Suspense } from 'react'
+import {
+  useState,
+  useCallback,
+  useEffect,
+  useMemo,
+  lazy,
+  Suspense,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
@@ -113,6 +120,10 @@ const LazyFlowCharts = lazy(() =>
   }))
 )
 
+const LazyChannelFinanceDashboard = lazy(
+  () => import('./components/finance/channel-finance-dashboard')
+)
+
 function LogStatCardsFallback() {
   return (
     <div className='overflow-hidden rounded-lg border'>
@@ -189,6 +200,9 @@ const SECTION_META: Record<DashboardSectionId, { titleKey: string }> = {
   users: {
     titleKey: 'User Analytics',
   },
+  finance: {
+    titleKey: 'Channel Finance',
+  },
 }
 
 export function Dashboard() {
@@ -245,13 +259,26 @@ export function Dashboard() {
 
   const meta = SECTION_META[activeSection] ?? SECTION_META.overview
   const isAdmin = Boolean(userRole && userRole >= ROLE.ADMIN)
+  const isRoot = Boolean(userRole && userRole >= ROLE.SUPER_ADMIN)
   const visibleSections = useMemo(
     () =>
-      DASHBOARD_SECTION_IDS.filter(
-        (section) => section !== 'overview' && (section !== 'users' || isAdmin)
-      ),
-    [isAdmin]
+      DASHBOARD_SECTION_IDS.filter((section) => {
+        if (section === 'overview') return false
+        if (section === 'users') return isAdmin
+        if (section === 'finance') return isRoot
+        return true
+      }),
+    [isAdmin, isRoot]
   )
+  useEffect(() => {
+    if (activeSection !== 'finance' || isRoot) return
+    void navigate({
+      to: '/dashboard/$section',
+      params: { section: DASHBOARD_DEFAULT_SECTION },
+      replace: true,
+    })
+  }, [activeSection, isRoot, navigate])
+
   const handleSectionChange = useCallback(
     (section: string) => {
       void navigate({
@@ -407,6 +434,13 @@ export function Dashboard() {
                   filters={modelFilters}
                   sensitiveVisible={flowSensitiveVisible}
                 />
+              </Suspense>
+            </FadeIn>
+          )}
+          {activeSection === 'finance' && isRoot && (
+            <FadeIn>
+              <Suspense fallback={<ModelChartsFallback />}>
+                <LazyChannelFinanceDashboard />
               </Suspense>
             </FadeIn>
           )}
