@@ -400,7 +400,26 @@ func migrateClickHouseLogDB() error {
 	if err := LOG_DB.Exec(clickHouseLogCreateTableSQL(ttlDays)).Error; err != nil {
 		return err
 	}
+	if err := ensureClickHouseLogQuotaCalculationColumns(); err != nil {
+		return err
+	}
 	return syncClickHouseLogTTL(ttlDays)
+}
+
+func clickHouseLogQuotaCalculationColumnStatements() []string {
+	return []string{
+		"ALTER TABLE logs ADD COLUMN IF NOT EXISTS quota_before_group Nullable(Decimal(30, 12)) AFTER quota",
+		"ALTER TABLE logs ADD COLUMN IF NOT EXISTS quota_after_group_unrounded Nullable(Decimal(30, 12)) AFTER quota_before_group",
+	}
+}
+
+func ensureClickHouseLogQuotaCalculationColumns() error {
+	for _, statement := range clickHouseLogQuotaCalculationColumnStatements() {
+		if err := LOG_DB.Exec(statement).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func clickHouseLogTTLDays() int {
@@ -438,6 +457,8 @@ CREATE TABLE IF NOT EXISTS logs (
 	token_name String DEFAULT '',
 	model_name String DEFAULT '',
 	quota Int32 DEFAULT 0,
+	quota_before_group Nullable(Decimal(30, 12)),
+	quota_after_group_unrounded Nullable(Decimal(30, 12)),
 	prompt_tokens Int32 DEFAULT 0,
 	completion_tokens Int32 DEFAULT 0,
 	use_time Int32 DEFAULT 0,

@@ -213,6 +213,9 @@ function BillingBreakdown(props: {
   const isClaude = other.claude === true
   const isTieredExpr = other.billing_mode === 'tiered_expr'
   const tieredSummary = getTieredBillingSummary(other)
+  const quotaBeforeGroup = log.quota_before_group ?? other.quota_before_group
+  const quotaAfterGroupUnrounded =
+    log.quota_after_group_unrounded ?? other.quota_after_group_unrounded
 
   const rows: Array<{ label: string; value: string }> = []
   const priceOpts = { digitsLarge: 4, digitsSmall: 6, abbreviate: false }
@@ -374,23 +377,20 @@ function BillingBreakdown(props: {
     })
   }
 
-  if (
-    other.quota_before_group != null &&
-    Number.isFinite(other.quota_before_group)
-  ) {
+  if (quotaBeforeGroup != null && Number.isFinite(quotaBeforeGroup)) {
     rows.push({
       label: t('Cost Before Group Ratio'),
-      value: formatPreciseLogQuota(other.quota_before_group),
+      value: formatPreciseLogQuota(quotaBeforeGroup),
     })
   }
 
   if (
-    other.quota_after_group_unrounded != null &&
-    Number.isFinite(other.quota_after_group_unrounded)
+    quotaAfterGroupUnrounded != null &&
+    Number.isFinite(quotaAfterGroupUnrounded)
   ) {
     rows.push({
       label: t('Cost After Group Ratio (Before Rounding)'),
-      value: formatPreciseLogQuota(other.quota_after_group_unrounded),
+      value: formatPreciseLogQuota(quotaAfterGroupUnrounded),
     })
   }
 

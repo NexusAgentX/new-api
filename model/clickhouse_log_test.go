@@ -82,12 +82,22 @@ func TestClickHouseLogCreateTableSQL(t *testing.T) {
 	assert.Contains(t, withoutTTL, "CREATE TABLE IF NOT EXISTS logs")
 	assert.Contains(t, withoutTTL, "ENGINE = MergeTree()")
 	assert.Contains(t, withoutTTL, "PARTITION BY toYYYYMM(toDateTime(created_at))")
+	assert.Contains(t, withoutTTL, "quota_before_group Nullable(Decimal(30, 12))")
+	assert.Contains(t, withoutTTL, "quota_after_group_unrounded Nullable(Decimal(30, 12))")
 	assert.Contains(t, withoutTTL, "ORDER BY (created_at, request_id)")
 	assert.NotContains(t, withoutTTL, "TTL ")
 
 	withTTL := clickHouseLogCreateTableSQL(30)
 	assert.Contains(t, withTTL, "ORDER BY (created_at, request_id)")
 	assert.Contains(t, withTTL, "TTL toDateTime(created_at) + INTERVAL 30 DAY DELETE")
+}
+
+func TestClickHouseLogQuotaCalculationColumnStatements(t *testing.T) {
+	statements := clickHouseLogQuotaCalculationColumnStatements()
+
+	require.Len(t, statements, 2)
+	assert.Contains(t, statements[0], "ADD COLUMN IF NOT EXISTS quota_before_group Nullable(Decimal(30, 12))")
+	assert.Contains(t, statements[1], "ADD COLUMN IF NOT EXISTS quota_after_group_unrounded Nullable(Decimal(30, 12))")
 }
 
 func TestClickHouseCreateTableHasTTL(t *testing.T) {

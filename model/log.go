@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -57,27 +58,29 @@ func sanitizeClickHouseLikePattern(input string) (string, error) {
 }
 
 type Log struct {
-	Id                int    `json:"id" gorm:"index:idx_created_at_id,priority:2;index:idx_user_id_id,priority:2"`
-	UserId            int    `json:"user_id" gorm:"index;index:idx_user_id_id,priority:1"`
-	CreatedAt         int64  `json:"created_at" gorm:"bigint;index:idx_created_at_id,priority:1;index:idx_created_at_type"`
-	Type              int    `json:"type" gorm:"index:idx_created_at_type"`
-	Content           string `json:"content"`
-	Username          string `json:"username" gorm:"index;index:index_username_model_name,priority:2;default:''"`
-	TokenName         string `json:"token_name" gorm:"index;default:''"`
-	ModelName         string `json:"model_name" gorm:"index;index:index_username_model_name,priority:1;default:''"`
-	Quota             int    `json:"quota" gorm:"default:0"`
-	PromptTokens      int    `json:"prompt_tokens" gorm:"default:0"`
-	CompletionTokens  int    `json:"completion_tokens" gorm:"default:0"`
-	UseTime           int    `json:"use_time" gorm:"default:0"`
-	IsStream          bool   `json:"is_stream"`
-	ChannelId         int    `json:"channel" gorm:"index"`
-	ChannelName       string `json:"channel_name" gorm:"->"`
-	TokenId           int    `json:"token_id" gorm:"default:0;index"`
-	Group             string `json:"group" gorm:"index"`
-	Ip                string `json:"ip" gorm:"index;default:''"`
-	RequestId         string `json:"request_id,omitempty" gorm:"type:varchar(64);index:idx_logs_request_id;default:''"`
-	UpstreamRequestId string `json:"upstream_request_id,omitempty" gorm:"type:varchar(128);index:idx_logs_upstream_request_id;default:''"`
-	Other             string `json:"other"`
+	Id                       int      `json:"id" gorm:"index:idx_created_at_id,priority:2;index:idx_user_id_id,priority:2"`
+	UserId                   int      `json:"user_id" gorm:"index;index:idx_user_id_id,priority:1"`
+	CreatedAt                int64    `json:"created_at" gorm:"bigint;index:idx_created_at_id,priority:1;index:idx_created_at_type"`
+	Type                     int      `json:"type" gorm:"index:idx_created_at_type"`
+	Content                  string   `json:"content"`
+	Username                 string   `json:"username" gorm:"index;index:index_username_model_name,priority:2;default:''"`
+	TokenName                string   `json:"token_name" gorm:"index;default:''"`
+	ModelName                string   `json:"model_name" gorm:"index;index:index_username_model_name,priority:1;default:''"`
+	Quota                    int      `json:"quota" gorm:"default:0"`
+	QuotaBeforeGroup         *float64 `json:"quota_before_group,omitempty" gorm:"type:decimal(30,12)"`
+	QuotaAfterGroupUnrounded *float64 `json:"quota_after_group_unrounded,omitempty" gorm:"type:decimal(30,12)"`
+	PromptTokens             int      `json:"prompt_tokens" gorm:"default:0"`
+	CompletionTokens         int      `json:"completion_tokens" gorm:"default:0"`
+	UseTime                  int      `json:"use_time" gorm:"default:0"`
+	IsStream                 bool     `json:"is_stream"`
+	ChannelId                int      `json:"channel" gorm:"index"`
+	ChannelName              string   `json:"channel_name" gorm:"->"`
+	TokenId                  int      `json:"token_id" gorm:"default:0;index"`
+	Group                    string   `json:"group" gorm:"index"`
+	Ip                       string   `json:"ip" gorm:"index;default:''"`
+	RequestId                string   `json:"request_id,omitempty" gorm:"type:varchar(64);index:idx_logs_request_id;default:''"`
+	UpstreamRequestId        string   `json:"upstream_request_id,omitempty" gorm:"type:varchar(128);index:idx_logs_upstream_request_id;default:''"`
+	Other                    string   `json:"other"`
 }
 
 // don't use iota, avoid change log type value
@@ -325,6 +328,20 @@ func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string,
 	}
 }
 
+func quotaCalculationFromOther(other map[string]interface{}) (*float64, *float64) {
+	if other == nil {
+		return nil, nil
+	}
+	quotaBeforeGroup, beforeOK := other["quota_before_group"].(float64)
+	quotaAfterGroupUnrounded, afterOK := other["quota_after_group_unrounded"].(float64)
+	if !beforeOK || !afterOK || quotaBeforeGroup < 0 || quotaAfterGroupUnrounded < 0 ||
+		math.IsNaN(quotaBeforeGroup) || math.IsNaN(quotaAfterGroupUnrounded) ||
+		math.IsInf(quotaBeforeGroup, 0) || math.IsInf(quotaAfterGroupUnrounded, 0) {
+		return nil, nil
+	}
+	return &quotaBeforeGroup, &quotaAfterGroupUnrounded
+}
+
 type RecordConsumeLogParams struct {
 	ChannelId        int                    `json:"channel_id"`
 	PromptTokens     int                    `json:"prompt_tokens"`
@@ -350,6 +367,7 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 	upstreamRequestId := c.GetString(common.UpstreamRequestIdKey)
 	createdAt := common.GetTimestamp()
 	otherStr := common.MapToJsonStr(params.Other)
+	quotaBeforeGroup, quotaAfterGroupUnrounded := quotaCalculationFromOther(params.Other)
 	// 判断是否需要记录 IP
 	needRecordIp := false
 	if settingMap, err := GetUserSetting(userId, false); err == nil {
@@ -358,21 +376,23 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 		}
 	}
 	log := &Log{
-		UserId:           userId,
-		Username:         username,
-		CreatedAt:        createdAt,
-		Type:             LogTypeConsume,
-		Content:          params.Content,
-		PromptTokens:     params.PromptTokens,
-		CompletionTokens: params.CompletionTokens,
-		TokenName:        params.TokenName,
-		ModelName:        params.ModelName,
-		Quota:            params.Quota,
-		ChannelId:        params.ChannelId,
-		TokenId:          params.TokenId,
-		UseTime:          params.UseTimeSeconds,
-		IsStream:         params.IsStream,
-		Group:            params.Group,
+		UserId:                   userId,
+		Username:                 username,
+		CreatedAt:                createdAt,
+		Type:                     LogTypeConsume,
+		Content:                  params.Content,
+		PromptTokens:             params.PromptTokens,
+		CompletionTokens:         params.CompletionTokens,
+		TokenName:                params.TokenName,
+		ModelName:                params.ModelName,
+		Quota:                    params.Quota,
+		QuotaBeforeGroup:         quotaBeforeGroup,
+		QuotaAfterGroupUnrounded: quotaAfterGroupUnrounded,
+		ChannelId:                params.ChannelId,
+		TokenId:                  params.TokenId,
+		UseTime:                  params.UseTimeSeconds,
+		IsStream:                 params.IsStream,
+		Group:                    params.Group,
 		Ip: func() string {
 			if needRecordIp {
 				return c.ClientIP()
@@ -428,19 +448,22 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 		}
 	}
 	createdAt := common.GetTimestamp()
+	quotaBeforeGroup, quotaAfterGroupUnrounded := quotaCalculationFromOther(params.Other)
 	log := &Log{
-		UserId:    params.UserId,
-		Username:  username,
-		CreatedAt: createdAt,
-		Type:      params.LogType,
-		Content:   params.Content,
-		TokenName: tokenName,
-		ModelName: params.ModelName,
-		Quota:     params.Quota,
-		ChannelId: params.ChannelId,
-		TokenId:   params.TokenId,
-		Group:     params.Group,
-		Other:     common.MapToJsonStr(params.Other),
+		UserId:                   params.UserId,
+		Username:                 username,
+		CreatedAt:                createdAt,
+		Type:                     params.LogType,
+		Content:                  params.Content,
+		TokenName:                tokenName,
+		ModelName:                params.ModelName,
+		Quota:                    params.Quota,
+		QuotaBeforeGroup:         quotaBeforeGroup,
+		QuotaAfterGroupUnrounded: quotaAfterGroupUnrounded,
+		ChannelId:                params.ChannelId,
+		TokenId:                  params.TokenId,
+		Group:                    params.Group,
+		Other:                    common.MapToJsonStr(params.Other),
 	}
 	err := createLog(log)
 	if err != nil {
@@ -610,13 +633,17 @@ func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int
 }
 
 type Stat struct {
-	Quota int `json:"quota"`
-	Rpm   int `json:"rpm"`
-	Tpm   int `json:"tpm"`
+	Quota                    int     `json:"quota"`
+	QuotaBeforeGroup         float64 `json:"quota_before_group"`
+	QuotaAfterGroupUnrounded float64 `json:"quota_after_group_unrounded"`
+	QuotaCalculationCount    int64   `json:"quota_calculation_count"`
+	ConsumeCount             int64   `json:"consume_count"`
+	Rpm                      int     `json:"rpm"`
+	Tpm                      int     `json:"tpm"`
 }
 
 func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string) (stat Stat, err error) {
-	tx := LOG_DB.Table("logs").Select("COALESCE(sum(quota), 0) quota")
+	tx := LOG_DB.Table("logs").Select("COALESCE(sum(quota), 0) quota, COALESCE(sum(quota_before_group), 0) quota_before_group, COALESCE(sum(quota_after_group_unrounded), 0) quota_after_group_unrounded, count(quota_before_group) quota_calculation_count, count(*) consume_count")
 
 	// 为rpm和tpm创建单独的查询
 	rpmTpmQuery := LOG_DB.Table("logs").Select("count(*) rpm, COALESCE(sum(prompt_tokens), 0) + COALESCE(sum(completion_tokens), 0) tpm")
