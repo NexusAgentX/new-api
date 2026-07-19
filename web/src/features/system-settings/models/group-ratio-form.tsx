@@ -69,6 +69,7 @@ type GroupFormValues = {
   GroupGroupRatio: string
   AutoGroups: string
   DefaultUseAutoGroup: boolean
+  GroupAllowZeroQuota: string
   GroupSpecialUsableGroup: string
 }
 
@@ -169,6 +170,7 @@ export const GroupRatioForm = memo(function GroupRatioForm({
               userUsableGroups={form.watch('UserUsableGroups')}
               groupGroupRatio={form.watch('GroupGroupRatio')}
               autoGroups={form.watch('AutoGroups')}
+              groupAllowZeroQuota={form.watch('GroupAllowZeroQuota')}
               groupSpecialUsableGroup={form.watch('GroupSpecialUsableGroup')}
               onChange={(field, value) =>
                 handleFieldChange(field as keyof GroupFormValues, value)
@@ -226,6 +228,31 @@ export const GroupRatioForm = memo(function GroupRatioForm({
                   <FormDescription>
                     {t(
                       'JSON map of group → ratio applied when the user selects the group explicitly.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='GroupAllowZeroQuota'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Allow free rounding')}</FormLabel>
+                  <FormControl>
+                    <JsonCodeEditor
+                      value={field.value}
+                      onChange={field.onChange}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      textareaRef={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'JSON map of group → whether a positive charge may round to zero quota.'
                     )}
                   </FormDescription>
                   <FormMessage />
@@ -499,7 +526,7 @@ function GroupPricingGuide({ open, onOpenChange }: GroupPricingGuideProps) {
                   {t('Charge.')}
                 </span>{' '}
                 {t(
-                  'Cost = model price × that one ratio. Nothing else from the group settings enters the formula.'
+                  "Cost = model price × that one ratio. The billing group's free-rounding switch then controls whether a positive sub-unit quota may round to zero."
                 )}
               </li>
             </ol>

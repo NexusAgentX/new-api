@@ -9,6 +9,8 @@ import (
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/shopspring/decimal"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Claude Sonnet-style tiered expression: standard vs long-context
@@ -82,6 +84,30 @@ func TestTryTieredSettleUsesFrozenRequestInput(t *testing.T) {
 	}
 	if result == nil || result.MatchedTier != "fast" {
 		t.Fatalf("matched tier = %v, want fast", result)
+	}
+}
+
+func TestTryTieredSettleHonorsFrozenAllowZeroQuota(t *testing.T) {
+	tests := []struct {
+		name           string
+		allowZeroQuota bool
+		want           int
+	}{
+		{name: "minimum quota", want: 1},
+		{name: "free rounding", allowZeroQuota: true, want: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			relayInfo := makeRelayInfo(`tier("base", p)`, 0.0001, 1, 0)
+			relayInfo.TieredBillingSnapshot.AllowZeroQuota = tt.allowZeroQuota
+
+			ok, quota, result := TryTieredSettle(relayInfo, billingexpr.TokenParams{P: 1, Len: 1})
+
+			require.True(t, ok)
+			require.NotNil(t, result)
+			assert.Equal(t, tt.want, quota)
+		})
 	}
 }
 

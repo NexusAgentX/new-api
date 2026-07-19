@@ -223,6 +223,7 @@ export type ModelSettings = {
   GroupGroupRatio: string
   AutoGroups: string
   DefaultUseAutoGroup: boolean
+  'group_ratio_setting.group_allow_zero_quota': string
   'group_ratio_setting.group_special_usable_group': string
   RetryTimes: number
   ChannelDisableThreshold: string
@@ -277,6 +278,7 @@ export type BillingSettings = {
   GroupGroupRatio: string
   AutoGroups: string
   DefaultUseAutoGroup: boolean
+  'group_ratio_setting.group_allow_zero_quota': string
   'group_ratio_setting.group_special_usable_group': string
   PayAddress: string
   EpayId: string

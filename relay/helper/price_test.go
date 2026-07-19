@@ -142,6 +142,54 @@ func TestModelPriceHelperTieredPreConsumeMaxTokensFallback(t *testing.T) {
 	}
 }
 
+func TestModelPriceHelperTieredHonorsGroupZeroQuotaSetting(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	saved := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
+		saved[key] = value
+		return nil
+	}))
+	t.Cleanup(func() {
+		require.NoError(t, config.GlobalConfig.LoadFromDB(saved))
+	})
+
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting.billing_mode":                     `{"tiny-model":"tiered_expr"}`,
+		"billing_setting.billing_expr":                     `{"tiny-model":"tier(\"base\", p)"}`,
+		"group_ratio_setting.group_ratio":                  `{"minimum":0.0001,"free-rounding":0.0001}`,
+		"group_ratio_setting.group_allow_zero_quota":       `{"minimum":false,"free-rounding":true}`,
+	}))
+
+	tests := []struct {
+		group string
+		want  int
+	}{
+		{group: "minimum", want: 1},
+		{group: "free-rounding", want: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.group, func(t *testing.T) {
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			info := &relaycommon.RelayInfo{
+				OriginModelName: "tiny-model",
+				UserGroup:       tt.group,
+				UsingGroup:      tt.group,
+				BillingRequestInput: &billingexpr.RequestInput{
+					Body: []byte(`{}`),
+				},
+			}
+
+			priceData, err := ModelPriceHelper(ctx, info, 1, &types.TokenCountMeta{})
+			require.NoError(t, err)
+			require.Equal(t, tt.want, priceData.QuotaToPreConsume)
+			require.Equal(t, tt.group == "free-rounding", info.TieredBillingSnapshot.AllowZeroQuota)
+		})
+	}
+}
+
 func TestModelPriceHelperTieredRejectsPreConsumeOverflow(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
