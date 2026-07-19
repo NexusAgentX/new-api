@@ -124,3 +124,24 @@ func TestQuotaFromDecimalChecked(t *testing.T) {
 		assert.Equal(t, QuotaClampOverflow, clamp.Kind)
 	}
 }
+
+func TestApplyMinimumBillableQuota(t *testing.T) {
+	tests := []struct {
+		name           string
+		quota          int
+		positiveCost   bool
+		allowZeroQuota bool
+		want           int
+	}{
+		{name: "minimum applies to rounded positive charge", quota: 0, positiveCost: true, want: 1},
+		{name: "group can allow rounded charge to stay free", quota: 0, positiveCost: true, allowZeroQuota: true, want: 0},
+		{name: "exact zero cost remains free", quota: 0, positiveCost: false, want: 0},
+		{name: "existing positive quota is unchanged", quota: 12, positiveCost: true, want: 12},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, ApplyMinimumBillableQuota(tt.quota, tt.positiveCost, tt.allowZeroQuota))
+		})
+	}
+}

@@ -1,7 +1,6 @@
 package ratio_setting
 
 import (
-	"encoding/json"
 	"errors"
 
 	"github.com/QuantumNous/new-api/common"
@@ -16,6 +15,7 @@ var defaultGroupRatio = map[string]float64{
 }
 
 var groupRatioMap = types.NewRWMap[string, float64]()
+var groupAllowZeroQuotaMap = types.NewRWMap[string, bool]()
 
 var defaultGroupGroupRatio = map[string]map[string]float64{
 	"vip": {
@@ -29,6 +29,7 @@ var defaultGroupSpecialUsableGroup = map[string]map[string]string{}
 
 type GroupRatioSetting struct {
 	GroupRatio              *types.RWMap[string, float64]            `json:"group_ratio"`
+	GroupAllowZeroQuota     *types.RWMap[string, bool]               `json:"group_allow_zero_quota"`
 	GroupGroupRatio         *types.RWMap[string, map[string]float64] `json:"group_group_ratio"`
 	GroupSpecialUsableGroup *types.RWMap[string, map[string]string]  `json:"group_special_usable_group"`
 }
@@ -45,6 +46,7 @@ func init() {
 	groupRatioSetting = GroupRatioSetting{
 		GroupSpecialUsableGroup: groupSpecialUsableGroup,
 		GroupRatio:              groupRatioMap,
+		GroupAllowZeroQuota:     groupAllowZeroQuotaMap,
 		GroupGroupRatio:         groupGroupRatioMap,
 	}
 
@@ -55,6 +57,9 @@ func GetGroupRatioSetting() *GroupRatioSetting {
 	if groupRatioSetting.GroupSpecialUsableGroup == nil {
 		groupRatioSetting.GroupSpecialUsableGroup = types.NewRWMap[string, map[string]string]()
 		groupRatioSetting.GroupSpecialUsableGroup.AddAll(defaultGroupSpecialUsableGroup)
+	}
+	if groupRatioSetting.GroupAllowZeroQuota == nil {
+		groupRatioSetting.GroupAllowZeroQuota = groupAllowZeroQuotaMap
 	}
 	return &groupRatioSetting
 }
@@ -85,6 +90,11 @@ func GetGroupRatio(name string) float64 {
 	return ratio
 }
 
+func IsZeroQuotaAllowed(name string) bool {
+	allowed, ok := groupAllowZeroQuotaMap.Get(name)
+	return ok && allowed
+}
+
 func GetGroupGroupRatio(userGroup, usingGroup string) (float64, bool) {
 	gp, ok := groupGroupRatioMap.Get(userGroup)
 	if !ok {
@@ -107,14 +117,27 @@ func UpdateGroupGroupRatioByJSONString(jsonStr string) error {
 
 func CheckGroupRatio(jsonStr string) error {
 	checkGroupRatio := make(map[string]float64)
-	err := json.Unmarshal([]byte(jsonStr), &checkGroupRatio)
-	if err != nil {
+	if err := common.Unmarshal([]byte(jsonStr), &checkGroupRatio); err != nil {
 		return err
+	}
+	if checkGroupRatio == nil {
+		return errors.New("group ratio must be a JSON object")
 	}
 	for name, ratio := range checkGroupRatio {
 		if ratio < 0 {
 			return errors.New("group ratio must be not less than 0: " + name)
 		}
+	}
+	return nil
+}
+
+func CheckGroupAllowZeroQuota(jsonStr string) error {
+	settings := make(map[string]bool)
+	if err := common.Unmarshal([]byte(jsonStr), &settings); err != nil {
+		return err
+	}
+	if settings == nil {
+		return errors.New("group zero quota setting must be a JSON object")
 	}
 	return nil
 }

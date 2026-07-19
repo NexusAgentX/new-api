@@ -133,6 +133,7 @@ const createGroupSchema = (t: Translate) =>
     }),
     MaxTokenAutoGroups: positiveIntegerSchema(t('Enter a positive integer')),
     DefaultUseAutoGroup: z.boolean(),
+    GroupAllowZeroQuota: createJsonStringField(t),
     GroupSpecialUsableGroup: createJsonStringField(t),
   })
 
@@ -208,6 +209,7 @@ export function RatioSettingsCard({
     AutoGroups: normalizeJsonString(groupDefaults.AutoGroups),
     MaxTokenAutoGroups: groupDefaults.MaxTokenAutoGroups,
     DefaultUseAutoGroup: groupDefaults.DefaultUseAutoGroup,
+    GroupAllowZeroQuota: normalizeJsonString(groupDefaults.GroupAllowZeroQuota),
     GroupSpecialUsableGroup: normalizeJsonString(
       groupDefaults.GroupSpecialUsableGroup
     ),
@@ -245,6 +247,9 @@ export function RatioSettingsCard({
       UserUsableGroups: formatJsonForTextarea(groupDefaults.UserUsableGroups),
       GroupGroupRatio: formatJsonForTextarea(groupDefaults.GroupGroupRatio),
       AutoGroups: formatJsonForTextarea(groupDefaults.AutoGroups),
+      GroupAllowZeroQuota: formatJsonForTextarea(
+        groupDefaults.GroupAllowZeroQuota
+      ),
       GroupSpecialUsableGroup: formatJsonForTextarea(
         groupDefaults.GroupSpecialUsableGroup
       ),
@@ -295,6 +300,9 @@ export function RatioSettingsCard({
       AutoGroups: normalizeJsonString(groupDefaults.AutoGroups),
       MaxTokenAutoGroups: groupDefaults.MaxTokenAutoGroups,
       DefaultUseAutoGroup: groupDefaults.DefaultUseAutoGroup,
+      GroupAllowZeroQuota: normalizeJsonString(
+        groupDefaults.GroupAllowZeroQuota
+      ),
       GroupSpecialUsableGroup: normalizeJsonString(
         groupDefaults.GroupSpecialUsableGroup
       ),
@@ -307,6 +315,9 @@ export function RatioSettingsCard({
       UserUsableGroups: formatJsonForTextarea(groupDefaults.UserUsableGroups),
       GroupGroupRatio: formatJsonForTextarea(groupDefaults.GroupGroupRatio),
       AutoGroups: formatJsonForTextarea(groupDefaults.AutoGroups),
+      GroupAllowZeroQuota: formatJsonForTextarea(
+        groupDefaults.GroupAllowZeroQuota
+      ),
       GroupSpecialUsableGroup: formatJsonForTextarea(
         groupDefaults.GroupSpecialUsableGroup
       ),
@@ -366,13 +377,15 @@ export function RatioSettingsCard({
         AutoGroups: normalizeJsonString(values.AutoGroups),
         MaxTokenAutoGroups: values.MaxTokenAutoGroups,
         DefaultUseAutoGroup: values.DefaultUseAutoGroup,
+        GroupAllowZeroQuota: normalizeJsonString(values.GroupAllowZeroQuota),
         GroupSpecialUsableGroup: normalizeJsonString(
           values.GroupSpecialUsableGroup
         ),
       }
 
-      // Map form field names to API keys (most are 1:1, except GroupSpecialUsableGroup)
+      // Map form field names to hierarchical API keys.
       const apiKeyMap: Record<string, string> = {
+        GroupAllowZeroQuota: 'group_ratio_setting.group_allow_zero_quota',
         GroupSpecialUsableGroup:
           'group_ratio_setting.group_special_usable_group',
       }

@@ -74,6 +74,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import { Switch } from '@/components/ui/switch'
 
 import { safeJsonParse } from '../utils/json-parser'
 
@@ -84,6 +85,7 @@ type GroupRatioVisualEditorProps = {
   groupGroupRatio: string
   autoGroups: string
   maxTokenAutoGroupsField: ReactNode
+  groupAllowZeroQuota: string
   groupSpecialUsableGroup: string
   onChange: (field: string, value: string) => void
 }
@@ -93,6 +95,7 @@ type GroupPricingRow = {
   name: string
   ratio: string
   topupRatio: string
+  allowZeroQuota: boolean
   selectable: boolean
   description: string
 }
@@ -131,6 +134,13 @@ function parseUsableMap(value: string): Record<string, string> {
   })
 }
 
+function parseBooleanMap(value: string): Record<string, boolean> {
+  return safeJsonParse<Record<string, boolean>>(value, {
+    fallback: {},
+    silent: true,
+  })
+}
+
 function parseNestedRatioMap(
   value: string
 ): Record<string, Record<string, number>> {
@@ -143,15 +153,18 @@ function parseNestedRatioMap(
 function buildGroupPricingRows(
   groupRatio: string,
   userUsableGroups: string,
-  topupGroupRatio: string
+  topupGroupRatio: string,
+  groupAllowZeroQuota: string
 ): GroupPricingRow[] {
   const ratioMap = parseRatioMap(groupRatio)
   const usableMap = parseUsableMap(userUsableGroups)
   const topupMap = parseRatioMap(topupGroupRatio)
+  const allowZeroMap = parseBooleanMap(groupAllowZeroQuota)
   const names = new Set([
     ...Object.keys(ratioMap),
     ...Object.keys(usableMap),
     ...Object.keys(topupMap),
+    ...Object.keys(allowZeroMap),
   ])
 
   return [...names].map((name) => ({
@@ -159,6 +172,7 @@ function buildGroupPricingRows(
     name,
     ratio: String(normalizeRatio(ratioMap[name])),
     topupRatio: Object.hasOwn(topupMap, name) ? String(topupMap[name]) : '',
+    allowZeroQuota: allowZeroMap[name] === true,
     selectable: Object.hasOwn(usableMap, name),
     description: String(usableMap[name] ?? ''),
   }))
@@ -168,11 +182,13 @@ function serializeGroupPricingRows(rows: GroupPricingRow[]) {
   const groupRatio: Record<string, number> = {}
   const userUsableGroups: Record<string, string> = {}
   const topupGroupRatio: Record<string, number> = {}
+  const groupAllowZeroQuota: Record<string, boolean> = {}
 
   for (const row of rows) {
     const name = row.name.trim()
     if (!name) continue
     groupRatio[name] = normalizeRatio(row.ratio)
+    groupAllowZeroQuota[name] = row.allowZeroQuota
     if (row.selectable) {
       userUsableGroups[name] = row.description
     }
@@ -186,6 +202,7 @@ function serializeGroupPricingRows(rows: GroupPricingRow[]) {
     GroupRatio: JSON.stringify(groupRatio, null, 2),
     UserUsableGroups: JSON.stringify(userUsableGroups, null, 2),
     TopupGroupRatio: JSON.stringify(topupGroupRatio, null, 2),
+    GroupAllowZeroQuota: JSON.stringify(groupAllowZeroQuota, null, 2),
   }
 }
 
@@ -195,18 +212,21 @@ function groupPricingSignature(rows: GroupPricingRow[]): string {
     groupRatio: parseRatioMap(serialized.GroupRatio),
     userUsableGroups: parseUsableMap(serialized.UserUsableGroups),
     topupGroupRatio: parseRatioMap(serialized.TopupGroupRatio),
+    groupAllowZeroQuota: parseBooleanMap(serialized.GroupAllowZeroQuota),
   })
 }
 
 function sourceGroupPricingSignature(
   groupRatio: string,
   userUsableGroups: string,
-  topupGroupRatio: string
+  topupGroupRatio: string,
+  groupAllowZeroQuota: string
 ): string {
   return JSON.stringify({
     groupRatio: parseRatioMap(groupRatio),
     userUsableGroups: parseUsableMap(userUsableGroups),
     topupGroupRatio: parseRatioMap(topupGroupRatio),
+    groupAllowZeroQuota: parseBooleanMap(groupAllowZeroQuota),
   })
 }
 
@@ -266,6 +286,7 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
   groupGroupRatio,
   autoGroups,
   maxTokenAutoGroupsField,
+  groupAllowZeroQuota,
   groupSpecialUsableGroup,
   onChange,
 }: GroupRatioVisualEditorProps) {
@@ -276,16 +297,18 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
     const ratioMap = parseRatioMap(groupRatio)
     const usableMap = parseUsableMap(userUsableGroups)
     const topupMap = parseRatioMap(topupGroupRatio)
+    const allowZeroMap = parseBooleanMap(groupAllowZeroQuota)
     const names = new Set([
       ...Object.keys(ratioMap),
       ...Object.keys(usableMap),
       ...Object.keys(topupMap),
+      ...Object.keys(allowZeroMap),
     ])
     return [...names].map((name) => ({
       name,
       ratio: normalizeRatio(ratioMap[name]),
     }))
-  }, [groupRatio, userUsableGroups, topupGroupRatio])
+  }, [groupRatio, userUsableGroups, topupGroupRatio, groupAllowZeroQuota])
 
   const registryNames = useMemo(
     () => registry.map((entry) => entry.name),
@@ -338,6 +361,7 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
         groupRatio={groupRatio}
         userUsableGroups={userUsableGroups}
         topupGroupRatio={topupGroupRatio}
+        groupAllowZeroQuota={groupAllowZeroQuota}
         onChange={onChange}
         onShowDetail={setDetailGroup}
       />
@@ -430,6 +454,7 @@ type GroupPricingTableProps = {
   groupRatio: string
   userUsableGroups: string
   topupGroupRatio: string
+  groupAllowZeroQuota: string
   onChange: (field: string, value: string) => void
   onShowDetail: (name: string) => void
 }
@@ -438,19 +463,26 @@ function GroupPricingTable({
   groupRatio,
   userUsableGroups,
   topupGroupRatio,
+  groupAllowZeroQuota,
   onChange,
   onShowDetail,
 }: GroupPricingTableProps) {
   const { t } = useTranslation()
   const [rows, setRows] = useState<GroupPricingRow[]>(() =>
-    buildGroupPricingRows(groupRatio, userUsableGroups, topupGroupRatio)
+    buildGroupPricingRows(
+      groupRatio,
+      userUsableGroups,
+      topupGroupRatio,
+      groupAllowZeroQuota
+    )
   )
 
   useEffect(() => {
     const incomingSignature = sourceGroupPricingSignature(
       groupRatio,
       userUsableGroups,
-      topupGroupRatio
+      topupGroupRatio,
+      groupAllowZeroQuota
     )
     setRows((currentRows) => {
       if (groupPricingSignature(currentRows) === incomingSignature) {
@@ -459,10 +491,11 @@ function GroupPricingTable({
       return buildGroupPricingRows(
         groupRatio,
         userUsableGroups,
-        topupGroupRatio
+        topupGroupRatio,
+        groupAllowZeroQuota
       )
     })
-  }, [groupRatio, userUsableGroups, topupGroupRatio])
+  }, [groupRatio, userUsableGroups, topupGroupRatio, groupAllowZeroQuota])
 
   const emitRows = useCallback(
     (nextRows: GroupPricingRow[]) => {
@@ -471,6 +504,7 @@ function GroupPricingTable({
       onChange('GroupRatio', serialized.GroupRatio)
       onChange('UserUsableGroups', serialized.UserUsableGroups)
       onChange('TopupGroupRatio', serialized.TopupGroupRatio)
+      onChange('GroupAllowZeroQuota', serialized.GroupAllowZeroQuota)
     },
     [onChange]
   )
@@ -503,6 +537,7 @@ function GroupPricingTable({
         name,
         ratio: '1',
         topupRatio: '',
+        allowZeroQuota: false,
         selectable: true,
         description: '',
       },
@@ -599,6 +634,24 @@ function GroupPricingTable({
                       updateRow(row._id, 'topupRatio', event.target.value)
                     }
                   />
+                ),
+              },
+              {
+                id: 'allow-zero-quota',
+                header: t('Allow free rounding'),
+                className: 'w-32 text-center',
+                cell: (row) => (
+                  <div className='flex justify-center'>
+                    <Switch
+                      checked={row.allowZeroQuota}
+                      onCheckedChange={(checked) =>
+                        updateRow(row._id, 'allowZeroQuota', checked)
+                      }
+                      aria-label={t('Allow free rounding for {{group}}', {
+                        group: row.name,
+                      })}
+                    />
+                  </div>
                 ),
               },
               {

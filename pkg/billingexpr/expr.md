@@ -217,10 +217,12 @@ This ensures that heavy cache usage doesn't cause the tier condition to incorrec
 Expression coefficients are $/1M tokens. Conversion to internal quota:
 
 ```
-quota = exprOutput / 1,000,000 * QuotaPerUnit * groupRatio
+rawQuota = exprOutput / 1,000,000 * QuotaPerUnit * groupRatio
+quota = round(rawQuota)
 ```
 
-This matches the per-call billing pattern: `quota = modelPrice * QuotaPerUnit * groupRatio`.
+This matches the per-call billing pattern: `rawQuota = modelPrice * QuotaPerUnit * groupRatio`.
+After conversion, the billing group's `group_allow_zero_quota` policy controls only the quota representation floor: when `rawQuota > 0` rounds to `0`, groups that disallow zero quota charge the minimum `1` quota point. Exact zero-cost requests, zero-ratio groups, and requests without billable usage remain free. The policy is frozen in `BillingSnapshot.AllowZeroQuota` during pre-consume so settlement cannot change behavior mid-request. It does not alter expression coefficients or provider prices.
 
 ### Expression Versioning
 

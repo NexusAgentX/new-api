@@ -90,6 +90,30 @@ func TestTryTieredSettleUsesFrozenRequestInput(t *testing.T) {
 	}
 }
 
+func TestTryTieredSettleHonorsFrozenAllowZeroQuota(t *testing.T) {
+	tests := []struct {
+		name           string
+		allowZeroQuota bool
+		want           int
+	}{
+		{name: "minimum quota", want: 1},
+		{name: "free rounding", allowZeroQuota: true, want: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			relayInfo := makeRelayInfo(`tier("base", p)`, 0.0001, 1, 0)
+			relayInfo.TieredBillingSnapshot.AllowZeroQuota = tt.allowZeroQuota
+
+			ok, quota, result := TryTieredSettle(relayInfo, billingexpr.TokenParams{P: 1, Len: 1})
+
+			require.True(t, ok)
+			require.NotNil(t, result)
+			assert.Equal(t, tt.want, quota)
+		})
+	}
+}
+
 func TestTryTieredSettleFallsBackToFrozenPreConsumeOnExprError(t *testing.T) {
 	relayInfo := &relaycommon.RelayInfo{
 		FinalPreConsumedQuota: 321,

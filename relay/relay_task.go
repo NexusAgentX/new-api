@@ -198,7 +198,11 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	if !common.StringsContains(constant.TaskPricePatches, modelName) {
 		quotaWithRatios := info.PriceData.ApplyOtherRatiosToFloat(float64(info.PriceData.Quota))
 		quota, clamp := common.QuotaFromFloatChecked(quotaWithRatios)
-		info.PriceData.Quota = quota
+		info.PriceData.Quota = common.ApplyMinimumBillableQuota(
+			quota,
+			quotaWithRatios > 0,
+			info.PriceData.GroupRatioInfo.AllowZeroQuota,
+		)
 		noteTaskQuotaClamp(info, clamp)
 	}
 
@@ -272,7 +276,11 @@ func recalcQuotaFromRatios(info *relaycommon.RelayInfo, ratios map[string]float6
 	result := priceData.ApplyOtherRatiosToFloat(baseQuota)
 	quota, clamp := common.QuotaFromFloatChecked(result)
 	noteTaskQuotaClamp(info, clamp)
-	return quota, true
+	return common.ApplyMinimumBillableQuota(
+		quota,
+		result > 0,
+		priceData.GroupRatioInfo.AllowZeroQuota,
+	), true
 }
 
 // noteTaskQuotaClamp records the first quota saturation event onto the task's

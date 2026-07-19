@@ -66,6 +66,7 @@ func HandleGroupRatio(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) hostty
 		// normal group ratio
 		groupRatioInfo.GroupRatio = ratio_setting.GetGroupRatio(relayInfo.UsingGroup)
 	}
+	groupRatioInfo.AllowZeroQuota = ratio_setting.IsZeroQuotaAllowed(relayInfo.UsingGroup)
 
 	return groupRatioInfo
 }
@@ -118,11 +119,12 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 		audioRatio = ratio_setting.GetAudioRatio(info.OriginModelName)
 		audioCompletionRatio = ratio_setting.GetAudioCompletionRatio(info.OriginModelName)
 		ratio := modelRatio * groupRatioInfo.GroupRatio
-		quota, err := common.QuotaFromFloatStrict(float64(preConsumedTokens) * ratio)
+		preConsumeCost := float64(preConsumedTokens) * ratio
+		quota, err := common.QuotaFromFloatStrict(preConsumeCost)
 		if err != nil {
 			return hosttypes.PriceData{}, err
 		}
-		preConsumedQuota = quota
+		preConsumedQuota = common.ApplyMinimumBillableQuota(quota, preConsumeCost > 0, groupRatioInfo.AllowZeroQuota)
 	} else {
 		if meta.ImagePriceRatio != 0 {
 			modelPrice = modelPrice * meta.ImagePriceRatio
@@ -173,7 +175,7 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 		if err != nil {
 			return hosttypes.PriceData{}, err
 		}
-		priceData.QuotaToPreConsume = quota
+		priceData.QuotaToPreConsume = common.ApplyMinimumBillableQuota(quota, quotaToPreConsume > 0, groupRatioInfo.AllowZeroQuota)
 	}
 
 	if common.DebugEnabled {
@@ -214,11 +216,13 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (hostt
 	freeModel := false
 
 	if usePrice {
+		quotaCost := modelPrice * common.QuotaPerUnit * groupRatioInfo.GroupRatio
 		var err error
-		quota, err = common.QuotaFromFloatStrict(modelPrice * common.QuotaPerUnit * groupRatioInfo.GroupRatio)
+		quota, err = common.QuotaFromFloatStrict(quotaCost)
 		if err != nil {
 			return hosttypes.PriceData{}, err
 		}
+		quota = common.ApplyMinimumBillableQuota(quota, quotaCost > 0, groupRatioInfo.AllowZeroQuota)
 		if !operation_setting.GetQuotaSetting().EnableFreeModelPreConsume {
 			if groupRatioInfo.GroupRatio == 0 || modelPrice == 0 {
 				quota = 0
@@ -227,11 +231,13 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (hostt
 		}
 	} else {
 		// 按量计费：以模型倍率的一半作为预扣额度
+		quotaCost := modelRatio / 2 * common.QuotaPerUnit * groupRatioInfo.GroupRatio
 		var err error
-		quota, err = common.QuotaFromFloatStrict(modelRatio / 2 * common.QuotaPerUnit * groupRatioInfo.GroupRatio)
+		quota, err = common.QuotaFromFloatStrict(quotaCost)
 		if err != nil {
 			return hosttypes.PriceData{}, err
 		}
+		quota = common.ApplyMinimumBillableQuota(quota, quotaCost > 0, groupRatioInfo.AllowZeroQuota)
 		modelPrice = -1
 		if !operation_setting.GetQuotaSetting().EnableFreeModelPreConsume {
 			if groupRatioInfo.GroupRatio == 0 || modelRatio == 0 {
@@ -293,10 +299,12 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptT
 
 	// Expression coefficients are $/1M tokens prices; convert to quota the same way per-call billing does.
 	quotaBeforeGroup := rawCost / 1_000_000 * common.QuotaPerUnit
-	preConsumedQuota, err := billingexpr.QuotaRoundStrict(quotaBeforeGroup * groupRatioInfo.GroupRatio)
+	quotaAfterGroup := quotaBeforeGroup * groupRatioInfo.GroupRatio
+	preConsumedQuota, err := billingexpr.QuotaRoundStrict(quotaAfterGroup)
 	if err != nil {
 		return hosttypes.PriceData{}, err
 	}
+	preConsumedQuota = common.ApplyMinimumBillableQuota(preConsumedQuota, quotaAfterGroup > 0, groupRatioInfo.AllowZeroQuota)
 
 	freeModel := false
 	if !operation_setting.GetQuotaSetting().EnableFreeModelPreConsume {
@@ -313,6 +321,7 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptT
 		ExprString:                exprStr,
 		ExprHash:                  exprHash,
 		GroupRatio:                groupRatioInfo.GroupRatio,
+		AllowZeroQuota:            groupRatioInfo.AllowZeroQuota,
 		EstimatedPromptTokens:     promptTokens,
 		EstimatedCompletionTokens: estimatedCompletionTokens,
 		EstimatedQuotaBeforeGroup: quotaBeforeGroup,

@@ -322,6 +322,7 @@ export function ModelMutateDrawer({
       MaxTokenAutoGroups: 5,
       DefaultUseAutoGroup: false,
       CreateCacheRatio: '',
+      'group_ratio_setting.group_allow_zero_quota': '{}',
       'group_ratio_setting.group_special_usable_group': '{}',
       'grok.violation_deduction_enabled': false,
       'grok.violation_deduction_amount': 0,
