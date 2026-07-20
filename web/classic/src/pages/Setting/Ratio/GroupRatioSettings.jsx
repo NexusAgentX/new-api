@@ -54,6 +54,7 @@ const OPTION_KEYS = [
   'GroupRatio',
   'UserUsableGroups',
   'GroupGroupRatio',
+  'group_ratio_setting.group_credit_quota',
   'group_ratio_setting.group_special_usable_group',
   'AutoGroups',
   'DefaultUseAutoGroup',
@@ -78,6 +79,7 @@ export default function GroupRatioSettings(props) {
     GroupRatio: '',
     UserUsableGroups: '',
     GroupGroupRatio: '',
+    'group_ratio_setting.group_credit_quota': '',
     'group_ratio_setting.group_special_usable_group': '',
     AutoGroups: '',
     DefaultUseAutoGroup: false,
@@ -155,8 +157,13 @@ export default function GroupRatioSettings(props) {
   }, [props.options]);
 
   const handleGroupTableChange = useCallback(
-    ({ GroupRatio, UserUsableGroups }) => {
-      setInputs((prev) => ({ ...prev, GroupRatio, UserUsableGroups }));
+    ({ GroupRatio, UserUsableGroups, GroupCreditQuota }) => {
+      setInputs((prev) => ({
+        ...prev,
+        GroupRatio,
+        UserUsableGroups,
+        'group_ratio_setting.group_credit_quota': GroupCreditQuota,
+      }));
     },
     [],
   );
@@ -188,6 +195,7 @@ export default function GroupRatioSettings(props) {
           key={`gt_${dv}`}
           groupRatio={inputs.GroupRatio}
           userUsableGroups={inputs.UserUsableGroups}
+          groupCreditQuota={inputs['group_ratio_setting.group_credit_quota']}
           onChange={handleGroupTableChange}
         />
       </Form.Section>
@@ -287,6 +295,33 @@ export default function GroupRatioSettings(props) {
               ]}
               onChange={(value) =>
                 setInputs((prev) => ({ ...prev, GroupRatio: value }))
+              }
+            />
+          </Col>
+        </Row>
+        <Row gutter={16}>
+          <Col xs={24} sm={16}>
+            <Form.TextArea
+              label={t('分组信用额度')}
+              placeholder={t('键为用户组，值为内部额度整数')}
+              extraText={t(
+                '分组信用额度允许该用户组的钱包余额进入负数；可视化模式会按当前展示币种自动换算。',
+              )}
+              field={'group_ratio_setting.group_credit_quota'}
+              autosize={{ minRows: 6, maxRows: 12 }}
+              trigger='blur'
+              stopValidateWithError
+              rules={[
+                {
+                  validator: (rule, value) => verifyJSON(value),
+                  message: t('不是合法的 JSON 字符串'),
+                },
+              ]}
+              onChange={(value) =>
+                setInputs((prev) => ({
+                  ...prev,
+                  'group_ratio_setting.group_credit_quota': value,
+                }))
               }
             />
           </Col>

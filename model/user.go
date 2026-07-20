@@ -1100,6 +1100,31 @@ func decreaseUserQuota(id int, quota int) (err error) {
 	return err
 }
 
+// DecreaseUserQuotaWithLimit atomically reserves wallet quota without letting
+// the resulting balance cross minQuota. It intentionally bypasses batch
+// updates because delayed database writes cannot enforce a credit boundary.
+func DecreaseUserQuotaWithLimit(id int, quota int, minQuota int) error {
+	if quota < 0 {
+		return errors.New("quota 不能为负数！")
+	}
+	threshold := int64(minQuota) + int64(quota)
+	result := DB.Model(&User{}).
+		Where("id = ? AND quota >= ?", id, threshold).
+		Update("quota", gorm.Expr("quota - ?", quota))
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrUserQuotaInsufficient
+	}
+	gopool.Go(func() {
+		if err := cacheDecrUserQuota(id, int64(quota)); err != nil {
+			common.SysLog("failed to decrease user quota cache: " + err.Error())
+		}
+	})
+	return nil
+}
+
 func DeltaUpdateUserQuota(id int, delta int) (err error) {
 	if delta == 0 {
 		return nil

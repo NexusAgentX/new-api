@@ -471,6 +471,10 @@ export function OverviewDashboard() {
 
   const requestCount = Number(user?.request_count ?? 0)
   const remainQuota = Number(user?.quota ?? 0)
+  const creditQuota = Number(user?.credit_quota ?? 0)
+  const availableQuota = Number(
+    user?.available_quota ?? remainQuota + creditQuota
+  )
   const usedQuota = Number(user?.used_quota ?? 0)
   const isAdmin = Boolean(user?.role && user.role >= ROLE.ADMIN)
 
@@ -511,7 +515,7 @@ export function OverviewDashboard() {
         description: t('Keep enough balance before production traffic'),
         to: '/wallet',
         icon: CreditCard,
-        completed: remainQuota > 0 || usedQuota > 0,
+        completed: availableQuota > 0 || usedQuota > 0,
       },
       {
         title: t('Send a request'),
@@ -521,7 +525,7 @@ export function OverviewDashboard() {
         completed: requestCount > 0,
       },
     ],
-    [preferredKey, remainQuota, requestCount, t, usedQuota]
+    [availableQuota, preferredKey, requestCount, t, usedQuota]
   )
 
   const quickActions = useMemo<QuickAction[]>(

@@ -120,6 +120,7 @@ type TaskBillingContext struct {
 	ChannelCostMode   string             `json:"channel_cost_mode,omitempty"`   // 请求结算时的渠道成本模式
 	ChannelCostUSD    *float64           `json:"channel_cost_usd,omitempty"`    // 请求结算时冻结的按量成本
 	ChannelCostRatio  *float64           `json:"channel_cost_ratio,omitempty"`  // 请求结算时冻结的按量成本倍率
+	WalletCreditQuota int                `json:"wallet_credit_quota,omitempty"` // 提交时冻结的钱包授信额度
 }
 
 // GetUpstreamTaskID 获取上游真实 task ID（用于与 provider 通信）

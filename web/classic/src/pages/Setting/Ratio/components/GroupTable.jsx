@@ -1,3 +1,22 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
 import React, { useState, useCallback, useMemo, useRef } from 'react';
 import {
   Button,
@@ -9,6 +28,10 @@ import {
 } from '@douyinfe/semi-ui';
 import { IconPlus, IconDelete } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
+import {
+  displayAmountToQuota,
+  quotaToDisplayAmount,
+} from '../../../../helpers/quota';
 import CardTable from '../../../../components/common/ui/CardTable';
 
 const { Text } = Typography;
@@ -25,19 +48,22 @@ function parseJSON(str, fallback) {
   }
 }
 
-function buildRows(groupRatioStr, userUsableGroupsStr) {
+function buildRows(groupRatioStr, userUsableGroupsStr, groupCreditQuotaStr) {
   const ratioMap = parseJSON(groupRatioStr, {});
   const usableMap = parseJSON(userUsableGroupsStr, {});
+  const creditMap = parseJSON(groupCreditQuotaStr, {});
 
   const allNames = new Set([
     ...Object.keys(ratioMap),
     ...Object.keys(usableMap),
+    ...Object.keys(creditMap),
   ]);
 
   return Array.from(allNames).map((name) => ({
     _id: uid(),
     name,
     ratio: ratioMap[name] ?? 1,
+    creditLimit: quotaToDisplayAmount(creditMap[name] ?? 0),
     selectable: name in usableMap,
     description: usableMap[name] ?? '',
   }));
@@ -46,10 +72,14 @@ function buildRows(groupRatioStr, userUsableGroupsStr) {
 export function serializeGroupTable(rows) {
   const groupRatio = {};
   const userUsableGroups = {};
+  const groupCreditQuota = {};
 
   rows.forEach((row) => {
     if (!row.name) return;
     groupRatio[row.name] = row.ratio;
+    groupCreditQuota[row.name] = displayAmountToQuota(
+      Math.max(0, Number(row.creditLimit) || 0),
+    );
     if (row.selectable) {
       userUsableGroups[row.name] = row.description;
     }
@@ -58,14 +88,20 @@ export function serializeGroupTable(rows) {
   return {
     GroupRatio: JSON.stringify(groupRatio, null, 2),
     UserUsableGroups: JSON.stringify(userUsableGroups, null, 2),
+    GroupCreditQuota: JSON.stringify(groupCreditQuota, null, 2),
   };
 }
 
-export default function GroupTable({ groupRatio, userUsableGroups, onChange }) {
+export default function GroupTable({
+  groupRatio,
+  userUsableGroups,
+  groupCreditQuota,
+  onChange,
+}) {
   const { t } = useTranslation();
 
   const [rows, setRows] = useState(() =>
-    buildRows(groupRatio, userUsableGroups),
+    buildRows(groupRatio, userUsableGroups, groupCreditQuota),
   );
 
   // Use functional setRows to keep updateRow/addRow/removeRow referentially
@@ -106,6 +142,7 @@ export default function GroupTable({ groupRatio, userUsableGroups, onChange }) {
           _id: uid(),
           name: newName,
           ratio: 1,
+          creditLimit: 0,
           selectable: true,
           description: '',
         },
@@ -166,6 +203,22 @@ export default function GroupTable({ groupRatio, userUsableGroups, onChange }) {
             value={record.ratio}
             style={{ width: '100%' }}
             onChange={(v) => updateRow(record._id, 'ratio', v ?? 0)}
+          />
+        ),
+      },
+      {
+        title: t('信用额度'),
+        dataIndex: 'creditLimit',
+        key: 'creditLimit',
+        width: 140,
+        render: (_, record) => (
+          <InputNumber
+            size='small'
+            min={0}
+            step={0.01}
+            value={record.creditLimit}
+            style={{ width: '100%' }}
+            onChange={(v) => updateRow(record._id, 'creditLimit', v ?? 0)}
           />
         ),
       },
