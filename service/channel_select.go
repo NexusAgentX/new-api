@@ -130,6 +130,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 				continue
 			}
 			common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroup, autoGroup)
+			updateChannelAffinitySelectedGroup(param.Ctx, autoGroup)
 			selectGroup = autoGroup
 			logger.LogDebug(param.Ctx, "Auto selected group: %s", autoGroup)
 

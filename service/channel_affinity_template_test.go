@@ -236,6 +236,122 @@ func TestGetPreferredChannelByAffinity_RequestHeaderKeySource(t *testing.T) {
 	require.Equal(t, buildChannelAffinityKeyHint(affinityValue), meta.KeyHint)
 }
 
+func TestUpdateChannelAffinitySelectedGroupKeepsAffinityPerGroup(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	affinityValue := fmt.Sprintf("group-switch-%d", time.Now().UnixNano())
+	rule := operation_setting.ChannelAffinityRule{
+		Name:              "auto-group-affinity",
+		IncludeUsingGroup: true,
+		IncludeRuleName:   true,
+	}
+	lowGroupKey := buildChannelAffinityCacheKeySuffix(rule, "gpt-5", "low-cost", affinityValue)
+	highGroupKey := buildChannelAffinityCacheKeySuffix(rule, "gpt-5", "fallback", affinityValue)
+	cache := getChannelAffinityCache()
+	require.NoError(t, cache.SetWithTTL(lowGroupKey, 101, time.Minute))
+	t.Cleanup(func() {
+		_, _ = cache.DeleteMany([]string{lowGroupKey, highGroupKey})
+	})
+
+	ctx := buildChannelAffinityTemplateContextForTest(channelAffinityMeta{
+		CacheKey:          channelAffinityCacheNamespace + ":" + lowGroupKey,
+		TTLSeconds:        60,
+		RuleName:          rule.Name,
+		AffinityValue:     affinityValue,
+		IncludeUsingGroup: true,
+		IncludeRuleName:   true,
+		UsingGroup:        "low-cost",
+		ModelName:         "gpt-5",
+	})
+
+	setting := operation_setting.GetChannelAffinitySetting()
+	originalEnabled := setting.Enabled
+	originalSwitchOnSuccess := setting.SwitchOnSuccess
+	setting.Enabled = true
+	setting.SwitchOnSuccess = true
+	t.Cleanup(func() {
+		setting.Enabled = originalEnabled
+		setting.SwitchOnSuccess = originalSwitchOnSuccess
+	})
+
+	ctx.Set(ginKeyChannelAffinityLogInfo, map[string]interface{}{
+		"using_group":    "low-cost",
+		"selected_group": "low-cost",
+	})
+	updateChannelAffinitySelectedGroup(ctx, "fallback")
+	meta, ok := getChannelAffinityMeta(ctx)
+	require.True(t, ok)
+	require.Equal(t, "fallback", meta.UsingGroup)
+	require.Equal(t, channelAffinityCacheNamespace+":"+highGroupKey, meta.CacheKey)
+	logInfo, ok := ctx.Get(ginKeyChannelAffinityLogInfo)
+	require.True(t, ok)
+	require.Equal(t, "fallback", logInfo.(map[string]interface{})["using_group"])
+	require.Equal(t, "fallback", logInfo.(map[string]interface{})["selected_group"])
+
+	RecordChannelAffinity(ctx, 202)
+	lowChannelID, found, err := cache.Get(lowGroupKey)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, 101, lowChannelID)
+	highChannelID, found, err := cache.Get(highGroupKey)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, 202, highChannelID)
+}
+
+func TestUpdateChannelAffinitySelectedGroupKeepsCacheKeyWhenSwitchDisabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	affinityValue := fmt.Sprintf("group-switch-disabled-%d", time.Now().UnixNano())
+	rule := operation_setting.ChannelAffinityRule{
+		Name:              "auto-group-affinity-disabled",
+		IncludeUsingGroup: true,
+		IncludeRuleName:   true,
+	}
+	lowGroupKey := buildChannelAffinityCacheKeySuffix(rule, "gpt-5", "low-cost", affinityValue)
+	highGroupKey := buildChannelAffinityCacheKeySuffix(rule, "gpt-5", "fallback", affinityValue)
+	cache := getChannelAffinityCache()
+	t.Cleanup(func() {
+		_, _ = cache.DeleteMany([]string{lowGroupKey, highGroupKey})
+	})
+
+	ctx := buildChannelAffinityTemplateContextForTest(channelAffinityMeta{
+		CacheKey:          channelAffinityCacheNamespace + ":" + lowGroupKey,
+		TTLSeconds:        60,
+		RuleName:          rule.Name,
+		AffinityValue:     affinityValue,
+		IncludeUsingGroup: true,
+		IncludeRuleName:   true,
+		UsingGroup:        "low-cost",
+		ModelName:         "gpt-5",
+	})
+
+	setting := operation_setting.GetChannelAffinitySetting()
+	originalEnabled := setting.Enabled
+	originalSwitchOnSuccess := setting.SwitchOnSuccess
+	setting.Enabled = true
+	setting.SwitchOnSuccess = false
+	t.Cleanup(func() {
+		setting.Enabled = originalEnabled
+		setting.SwitchOnSuccess = originalSwitchOnSuccess
+	})
+
+	updateChannelAffinitySelectedGroup(ctx, "fallback")
+	meta, ok := getChannelAffinityMeta(ctx)
+	require.True(t, ok)
+	require.Equal(t, "fallback", meta.UsingGroup)
+	require.Equal(t, channelAffinityCacheNamespace+":"+lowGroupKey, meta.CacheKey)
+
+	RecordChannelAffinity(ctx, 101)
+	lowChannelID, found, err := cache.Get(lowGroupKey)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, 101, lowChannelID)
+	_, found, err = cache.Get(highGroupKey)
+	require.NoError(t, err)
+	require.False(t, found)
+}
+
 func TestClearCurrentChannelAffinityCache(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
