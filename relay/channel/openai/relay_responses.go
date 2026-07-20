@@ -79,6 +79,8 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 
 	var usage = &dto.Usage{}
 	var responseTextBuilder strings.Builder
+	var firstEventError *types.NewAPIError
+	forwardedEvent := false
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 
@@ -89,7 +91,17 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			sr.Error(err)
 			return
 		}
+		if streamError := newResponsesStreamError(&streamResponse); streamError != nil {
+			if !forwardedEvent {
+				firstEventError = streamError
+			} else {
+				sendResponsesStreamData(c, streamResponse, data)
+			}
+			sr.Stop(streamError)
+			return
+		}
 		sendResponsesStreamData(c, streamResponse, data)
+		forwardedEvent = true
 		switch streamResponse.Type {
 		case "response.completed":
 			if streamResponse.Response != nil {
@@ -131,6 +143,10 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			}
 		}
 	})
+	if firstEventError != nil {
+		info.ResetFirstResponseTimeForRetry()
+		return nil, firstEventError
+	}
 
 	if usage.CompletionTokens == 0 {
 		// 计算输出文本的 token 数量
@@ -149,4 +165,31 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 
 	return usage, nil
+}
+
+func newResponsesStreamError(streamResponse *dto.ResponsesStreamResponse) *types.NewAPIError {
+	openAIError := streamResponse.GetOpenAIError()
+	if openAIError == nil {
+		return nil
+	}
+
+	statusCode := http.StatusBadGateway
+	errorType := strings.ToLower(strings.TrimSpace(openAIError.Type))
+	errorCode := strings.ToLower(strings.TrimSpace(fmt.Sprint(openAIError.Code)))
+	switch {
+	case errorType == "rate_limit_error",
+		errorCode == "rate_limit_error",
+		errorCode == "rate_limit_exceeded",
+		errorCode == "insufficient_quota":
+		statusCode = http.StatusTooManyRequests
+	case errorType == "invalid_request_error" || errorCode == "invalid_request_error":
+		statusCode = http.StatusBadRequest
+	case errorType == "authentication_error" || errorCode == "authentication_error":
+		statusCode = http.StatusUnauthorized
+	case errorType == "permission_error" || errorCode == "permission_error":
+		statusCode = http.StatusForbidden
+	case errorType == "not_found_error" || errorCode == "not_found_error":
+		statusCode = http.StatusNotFound
+	}
+	return types.WithOpenAIError(*openAIError, statusCode)
 }

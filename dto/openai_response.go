@@ -415,6 +415,10 @@ const (
 type ResponsesStreamResponse struct {
 	Type     string                   `json:"type"`
 	Response *OpenAIResponsesResponse `json:"response,omitempty"`
+	Error    any                      `json:"error,omitempty"`
+	Code     any                      `json:"code,omitempty"`
+	Message  string                   `json:"message,omitempty"`
+	Param    string                   `json:"param,omitempty"`
 	Delta    string                   `json:"delta,omitempty"`
 	Item     *ResponsesOutput         `json:"item,omitempty"`
 	// - response.function_call_arguments.delta
@@ -424,6 +428,36 @@ type ResponsesStreamResponse struct {
 	SummaryIndex *int                           `json:"summary_index,omitempty"`
 	ItemID       string                         `json:"item_id,omitempty"`
 	Part         *ResponsesReasoningSummaryPart `json:"part,omitempty"`
+}
+
+// GetOpenAIError extracts errors from both Responses failure envelopes and
+// top-level streaming error events.
+func (r *ResponsesStreamResponse) GetOpenAIError() *types.OpenAIError {
+	if r == nil {
+		return nil
+	}
+	if r.Response != nil {
+		if openAIError := r.Response.GetOpenAIError(); openAIError != nil &&
+			(openAIError.Type != "" || openAIError.Message != "" || openAIError.Code != nil) {
+			return openAIError
+		}
+	}
+	if openAIError := GetOpenAIError(r.Error); openAIError != nil &&
+		(openAIError.Type != "" || openAIError.Message != "" || openAIError.Code != nil) {
+		return openAIError
+	}
+	switch r.Type {
+	case "error", "response.error", "response.failed":
+		if r.Message != "" || r.Code != nil {
+			return &types.OpenAIError{
+				Type:    "upstream_error",
+				Message: r.Message,
+				Param:   r.Param,
+				Code:    r.Code,
+			}
+		}
+	}
+	return nil
 }
 
 // GetOpenAIError 从动态错误类型中提取OpenAIError结构
