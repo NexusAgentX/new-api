@@ -301,12 +301,20 @@ func Register(c *gin.Context) {
 	return
 }
 
+func attachUserCreditQuota(user *model.User) {
+	user.CreditQuota = ratio_setting.GetGroupCreditQuota(user.Group)
+	user.AvailableQuota = ratio_setting.GetGroupAvailableQuota(user.Group, user.Quota)
+}
+
 func GetAllUsers(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
 	users, total, err := model.GetAllUsers(pageInfo)
 	if err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	for _, user := range users {
+		attachUserCreditQuota(user)
 	}
 
 	pageInfo.SetTotal(int(total))
@@ -338,6 +346,9 @@ func SearchUsers(c *gin.Context) {
 		return
 	}
 
+	for _, user := range users {
+		attachUserCreditQuota(user)
+	}
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(users)
 	common.ApiSuccess(c, pageInfo)
@@ -365,6 +376,7 @@ func GetUser(c *gin.Context) {
 		return
 	}
 	user.AdminPermissions = authz.Capabilities(user.Id, user.Role)
+	attachUserCreditQuota(user)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",

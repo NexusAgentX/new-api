@@ -25,14 +25,12 @@ import { LongText } from '@/components/long-text'
 import { StatusBadge } from '@/components/status-badge'
 import { TableId } from '@/components/table-id'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Progress } from '@/components/ui/progress'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { formatQuota, formatTimestamp } from '@/lib/format'
-import { cn } from '@/lib/utils'
 
 import {
   USER_STATUS,
@@ -42,12 +40,6 @@ import {
 } from '../constants'
 import type { User } from '../types'
 import { DataTableRowActions } from './data-table-row-actions'
-
-function getQuotaProgressColor(percentage: number): string {
-  if (percentage <= 10) return '[&_[data-slot=progress-indicator]]:bg-rose-500'
-  if (percentage <= 30) return '[&_[data-slot=progress-indicator]]:bg-amber-500'
-  return '[&_[data-slot=progress-indicator]]:bg-emerald-500'
-}
 
 export function useUsersColumns(): ColumnDef<User>[] {
   const { t } = useTranslation()
@@ -173,60 +165,53 @@ export function useUsersColumns(): ColumnDef<User>[] {
       header: t('Quota'),
       cell: ({ row }) => {
         const user = row.original
-        const used = user.used_quota
-        const remaining = user.quota
-        const total = used + remaining
-        const percentage = total > 0 ? (remaining / total) * 100 : 0
-
-        if (total === 0) {
-          return (
-            <StatusBadge
-              label={t('No Quota')}
-              variant='neutral'
-              copyable={false}
-              className='-ml-1.5'
-            />
-          )
-        }
+        const balance = user.quota
+        const creditQuota = user.credit_quota ?? 0
+        const availableQuota = user.available_quota ?? balance + creditQuota
 
         return (
           <Tooltip>
             <TooltipTrigger
-              render={<div className='w-[150px] cursor-help space-y-1' />}
+              render={<div className='w-[180px] cursor-help space-y-1' />}
             >
-              <div className='flex justify-between text-xs'>
-                <span className='font-medium tabular-nums'>
-                  {formatQuota(remaining)}
+              <div className='flex items-center justify-between gap-2 text-xs'>
+                <span className='text-muted-foreground min-w-0 truncate'>
+                  {t('Available to spend')}
                 </span>
-                <span className='text-muted-foreground tabular-nums'>
-                  {formatQuota(total)}
+                <span className='shrink-0 font-medium tabular-nums'>
+                  {formatQuota(availableQuota)}
                 </span>
               </div>
-              <Progress
-                value={percentage}
-                className={cn('h-1.5', getQuotaProgressColor(percentage))}
-              />
+              <div className='flex items-center justify-between gap-2 text-xs'>
+                <span className='text-muted-foreground min-w-0 truncate'>
+                  {t('Current Balance')}
+                </span>
+                <span className='shrink-0 tabular-nums'>
+                  {formatQuota(balance)}
+                </span>
+              </div>
             </TooltipTrigger>
             <TooltipContent>
               <div className='space-y-1 text-xs'>
                 <div>
-                  {t('Used:')} {formatQuota(used)}
+                  {t('Total Usage')}: {formatQuota(user.used_quota)}
                 </div>
                 <div>
-                  {t('Remaining:')} {formatQuota(remaining)}
+                  {t('Current Balance')}: {formatQuota(balance)}
                 </div>
                 <div>
-                  {t('Total:')} {formatQuota(total)}
+                  {t('Credit limit for {{group}}', { group: user.group })}:{' '}
+                  {formatQuota(creditQuota)}
                 </div>
                 <div>
-                  {t('Percentage:')} {percentage.toFixed(1)}%
+                  {t('Available to spend')}: {formatQuota(availableQuota)}
                 </div>
               </div>
             </TooltipContent>
           </Tooltip>
         )
       },
-      size: 170,
+      size: 200,
       meta: { mobileOrder: 40 },
     },
     {

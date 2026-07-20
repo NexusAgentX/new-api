@@ -23,7 +23,6 @@ import {
   Space,
   Tag,
   Tooltip,
-  Progress,
   Popover,
   Typography,
   Dropdown,
@@ -140,37 +139,42 @@ const renderStatistics = (text, record, showEnableDisableModal, t) => {
   );
 };
 
-// Render separate quota usage column
+// Render wallet balance and group credit separately from historical usage.
 const renderQuotaUsage = (text, record, t) => {
   const { Paragraph } = Typography;
   const used = parseInt(record.used_quota) || 0;
-  const remain = parseInt(record.quota) || 0;
-  const total = used + remain;
-  const percent = total > 0 ? (remain / total) * 100 : 0;
+  const balance = parseInt(record.quota) || 0;
+  const creditQuota = parseInt(record.credit_quota) || 0;
+  const availableQuota =
+    record.available_quota === undefined || record.available_quota === null
+      ? balance + creditQuota
+      : Number(record.available_quota);
   const popoverContent = (
     <div className='text-xs p-2'>
       <Paragraph copyable={{ content: renderQuota(used) }}>
         {t('已用额度')}: {renderQuota(used)}
       </Paragraph>
-      <Paragraph copyable={{ content: renderQuota(remain) }}>
-        {t('剩余额度')}: {renderQuota(remain)} ({percent.toFixed(0)}%)
+      <Paragraph copyable={{ content: renderQuota(balance) }}>
+        {t('当前余额')}: {renderQuota(balance)}
       </Paragraph>
-      <Paragraph copyable={{ content: renderQuota(total) }}>
-        {t('总额度')}: {renderQuota(total)}
+      <Paragraph copyable={{ content: renderQuota(creditQuota) }}>
+        {t('信用额度')}: {renderQuota(creditQuota)}
+      </Paragraph>
+      <Paragraph copyable={{ content: renderQuota(availableQuota) }}>
+        {t('剩余额度')}: {renderQuota(availableQuota)}
       </Paragraph>
     </div>
   );
   return (
     <Popover content={popoverContent} position='top'>
       <Tag color='white' shape='circle'>
-        <div className='flex flex-col items-end'>
-          <span className='text-xs leading-none'>{`${renderQuota(remain)} / ${renderQuota(total)}`}</span>
-          <Progress
-            percent={percent}
-            aria-label='quota usage'
-            format={() => `${percent.toFixed(0)}%`}
-            style={{ width: '100%', marginTop: '1px', marginBottom: 0 }}
-          />
+        <div className='flex min-w-[140px] flex-col items-end gap-0.5'>
+          <span className='text-xs leading-none'>
+            {t('剩余额度')}: {renderQuota(availableQuota)}
+          </span>
+          <span className='text-xs leading-none text-gray-500'>
+            {t('当前余额')}: {renderQuota(balance)}
+          </span>
         </div>
       </Tag>
     </Popover>
@@ -334,7 +338,7 @@ export const getUsersColumns = ({
         renderStatistics(text, record, showEnableDisableModal, t),
     },
     {
-      title: t('剩余额度/总额度'),
+      title: t('剩余额度'),
       key: 'quota_usage',
       render: (text, record) => renderQuotaUsage(text, record, t),
     },
