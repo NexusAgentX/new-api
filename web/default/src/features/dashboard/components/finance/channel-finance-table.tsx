@@ -77,7 +77,12 @@ export function ChannelFinanceTable(props: {
             {props.channels.map((channel) => (
               <TableRow key={channel.channel_id}>
                 <TableCell>
-                  <div className='font-medium'>{channel.channel_name}</div>
+                  <div className='flex items-center gap-2'>
+                    <div className='font-medium'>{channel.channel_name}</div>
+                    {channel.deleted && (
+                      <Badge variant='secondary'>{t('Deleted channel')}</Badge>
+                    )}
+                  </div>
                   <div className='text-muted-foreground text-xs'>
                     #{channel.channel_id}
                   </div>

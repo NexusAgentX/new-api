@@ -90,6 +90,7 @@ func TestChannelFinanceReportCombinesFrozenUsageCostWithCurrentFixedCost(t *test
 	require.Len(t, report.Periods, 2)
 	require.Len(t, report.Channels, 2)
 	for _, channel := range report.Channels {
+		assert.False(t, channel.Deleted)
 		require.Len(t, channel.Periods, 2)
 	}
 
@@ -134,4 +135,40 @@ func TestChannelFinanceReportMarksUnavailableRequestFinanceData(t *testing.T) {
 	assert.EqualValues(t, 2, report.Summary.MissingCostCount)
 	require.Len(t, report.Periods, 1)
 	assert.Equal(t, start.Unix(), report.Periods[0].PeriodStart)
+}
+
+func TestChannelFinanceReportMarksDeletedChannels(t *testing.T) {
+	start := time.Date(2032, 4, 5, 0, 0, 0, 0, time.UTC)
+	channelID := 920004
+	revenue := 4.0
+	cost := 1.0
+
+	require.NoError(t, DB.Create(&Channel{
+		Id:             channelID,
+		Name:           "temporary-metered",
+		CostMode:       constant.ChannelCostModeUsageRatio,
+		UsageCostRatio: 0.25,
+	}).Error)
+	t.Cleanup(func() {
+		LOG_DB.Where("channel_id = ?", channelID).Delete(&Log{})
+		DB.Delete(&Channel{}, channelID)
+	})
+	require.NoError(t, createLog(&Log{
+		CreatedAt:         start.Add(time.Hour).Unix(),
+		Type:              LogTypeConsume,
+		ChannelId:         channelID,
+		ChannelRevenueUSD: &revenue,
+		ChannelCostUSD:    &cost,
+		ChannelCostMode:   constant.ChannelCostModeUsageRatio,
+	}))
+	require.NoError(t, DB.Delete(&Channel{}, channelID).Error)
+
+	report, err := GetChannelFinanceReport(start.Unix(), start.Add(24*time.Hour-time.Second).Unix(), ChannelFinanceGranularityDay, time.UTC)
+	require.NoError(t, err)
+	require.Len(t, report.Channels, 1)
+	assert.Equal(t, channelID, report.Channels[0].ChannelID)
+	assert.Equal(t, "#920004", report.Channels[0].ChannelName)
+	assert.True(t, report.Channels[0].Deleted)
+	assert.InDelta(t, revenue, report.Channels[0].RevenueUSD, 1e-12)
+	assert.InDelta(t, cost, report.Channels[0].CostUSD, 1e-12)
 }

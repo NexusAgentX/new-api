@@ -22,7 +22,9 @@ import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 import { getChannelFinance } from '../../api'
@@ -61,6 +63,7 @@ export default function ChannelFinanceDashboard() {
   const [rangeDays, setRangeDays] = useState<number>(30)
   const [granularity, setGranularity] =
     useState<ChannelFinanceGranularity>('day')
+  const [showDeletedChannels, setShowDeletedChannels] = useState(false)
   const range = useMemo(() => getDateRange(rangeDays), [rangeDays])
   const timezone = useMemo(
     () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
@@ -75,6 +78,13 @@ export default function ChannelFinanceDashboard() {
   const missingCount =
     (query.data?.summary.missing_revenue_count ?? 0) +
     (query.data?.summary.missing_cost_count ?? 0)
+  const visibleChannels = useMemo(() => {
+    const channels = query.data?.channels ?? []
+    if (showDeletedChannels) {
+      return channels
+    }
+    return channels.filter((channel) => !channel.deleted)
+  }, [query.data?.channels, showDeletedChannels])
 
   return (
     <div className='space-y-3 sm:space-y-4'>
@@ -105,6 +115,16 @@ export default function ChannelFinanceDashboard() {
             ))}
           </TabsList>
         </Tabs>
+        <div className='flex items-center gap-2 sm:ml-auto'>
+          <Switch
+            id='show-deleted-channels'
+            checked={showDeletedChannels}
+            onCheckedChange={setShowDeletedChannels}
+          />
+          <Label htmlFor='show-deleted-channels' className='cursor-pointer'>
+            {t('Show deleted channels')}
+          </Label>
+        </div>
       </div>
 
       {missingCount > 0 && (
@@ -137,10 +157,10 @@ export default function ChannelFinanceDashboard() {
           <FinanceTrend
             summary={query.data?.summary}
             periods={query.data?.periods ?? []}
-            channels={query.data?.channels ?? []}
+            channels={visibleChannels}
             granularity={granularity}
           />
-          <ChannelFinanceTable channels={query.data?.channels ?? []} />
+          <ChannelFinanceTable channels={visibleChannels} />
         </>
       )}
     </div>

@@ -231,6 +231,7 @@ export interface ChannelFinancePeriod extends ChannelFinanceSummary {
 export interface ChannelFinanceChannel extends ChannelFinanceSummary {
   channel_id: number
   channel_name: string
+  deleted: boolean
   cost_mode: 'none' | 'fixed_daily' | 'usage_ratio'
   cost_setting: number
   periods: ChannelFinancePeriod[]

@@ -54,6 +54,7 @@ export function FinanceTrend(props: {
   const selectedChannel = props.channels.find(
     (channel) => String(channel.channel_id) === selectedChannelID
   )
+  const selectValue = selectedChannel ? selectedChannelID : 'all'
   const visiblePeriods = selectedChannel?.periods ?? props.periods
   const visibleSummary = selectedChannel ?? props.summary
   const values = useMemo(() => {
@@ -119,7 +120,7 @@ export function FinanceTrend(props: {
           {formatNumber(visibleSummary?.request_count ?? 0)} {t('requests')}
         </span>
         <Select
-          value={selectedChannelID}
+          value={selectValue}
           onValueChange={(value) => setSelectedChannelID(value ?? 'all')}
         >
           <SelectTrigger className='ml-auto h-8 w-full sm:w-56'>

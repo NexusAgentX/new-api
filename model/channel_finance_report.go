@@ -36,6 +36,7 @@ type ChannelFinancePeriod struct {
 type ChannelFinanceChannel struct {
 	ChannelID   int                    `json:"channel_id"`
 	ChannelName string                 `json:"channel_name"`
+	Deleted     bool                   `json:"deleted"`
 	CostMode    string                 `json:"cost_mode"`
 	CostSetting float64                `json:"cost_setting"`
 	Periods     []ChannelFinancePeriod `json:"periods"`
@@ -112,6 +113,7 @@ func GetChannelFinanceReport(startTimestamp, endTimestamp int64, granularity str
 			channels = append(channels, ChannelFinanceChannel{
 				ChannelID:   row.ChannelID,
 				ChannelName: fmt.Sprintf("#%d", row.ChannelID),
+				Deleted:     true,
 				CostMode:    costMode,
 			})
 			channelIndex = len(channels) - 1
