@@ -159,9 +159,11 @@ export function parseCurrencyDisplayType(
   return isCurrencyDisplayType(value) ? value : fallback
 }
 
-function getConfig(): CurrencyConfig {
-  const { config } = useSystemConfigStore.getState()
-  const currency = config?.currency ?? DEFAULT_CURRENCY_CONFIG
+function getConfig(currencyOverride?: CurrencyConfig): CurrencyConfig {
+  const currency =
+    currencyOverride ??
+    useSystemConfigStore.getState().config?.currency ??
+    DEFAULT_CURRENCY_CONFIG
   return {
     ...DEFAULT_CURRENCY_CONFIG,
     ...currency,
@@ -226,6 +228,10 @@ function getBillingDisplayMeta(config: CurrencyConfig): DisplayMeta {
     }
   }
   return meta
+}
+
+function getDisplayScale(config: CurrencyConfig, meta: DisplayMeta): number {
+  return meta.kind === 'tokens' ? config.quotaPerUnit : meta.exchangeRate
 }
 
 function mergeOptions(
@@ -348,6 +354,48 @@ export function getCurrencyDisplay() {
   return { config, meta }
 }
 
+/** Convert a stored USD amount to the configured display unit. */
+export function convertUSDToDisplayAmount(amountUSD: number): number {
+  const { config, meta } = getCurrencyDisplay()
+  return amountUSD * getDisplayScale(config, meta)
+}
+
+/** Convert an amount entered in the configured display unit back to USD. */
+export function convertDisplayAmountToUSD(displayAmount: number): number {
+  const { config, meta } = getCurrencyDisplay()
+  return displayAmount / getDisplayScale(config, meta)
+}
+
+function formatCurrencyFromUSDWithResolvedConfig(
+  amountUSD: number | null | undefined,
+  config: CurrencyConfig,
+  options?: CurrencyFormatOptions
+): string {
+  if (amountUSD == null || Number.isNaN(amountUSD)) return '-'
+
+  const meta = getDisplayMeta(config)
+  const merged = mergeOptions(options)
+
+  if (meta.kind === 'tokens') {
+    const tokens = amountUSD * getDisplayScale(config, meta)
+    if (merged.compact) {
+      return new Intl.NumberFormat(merged.locale, {
+        notation: 'compact',
+        maximumFractionDigits: 1,
+      }).format(tokens)
+    }
+    return formatNumberWithSuffix(
+      tokens,
+      0,
+      merged.digitsSmall,
+      merged.abbreviate
+    )
+  }
+
+  const value = amountUSD * getDisplayScale(config, meta)
+  return formatCurrencyValue(value, merged, meta)
+}
+
 /**
  * Format a USD amount according to the admin-configured display settings.
  *
@@ -389,33 +437,24 @@ export function formatCurrencyFromUSD(
   amountUSD: number | null | undefined,
   options?: CurrencyFormatOptions
 ): string {
-  if (amountUSD == null || Number.isNaN(amountUSD)) return '-'
+  return formatCurrencyFromUSDWithResolvedConfig(
+    amountUSD,
+    getConfig(),
+    options
+  )
+}
 
-  const { config, meta } = getCurrencyDisplay()
-  const merged = mergeOptions(options)
-
-  if (meta.kind === 'tokens') {
-    const tokens = amountUSD * config.quotaPerUnit
-    if (merged.compact) {
-      return new Intl.NumberFormat(merged.locale, {
-        notation: 'compact',
-        maximumFractionDigits: 1,
-      }).format(tokens)
-    }
-    return formatNumberWithSuffix(
-      tokens,
-      0,
-      merged.digitsSmall,
-      merged.abbreviate
-    )
-  }
-
-  const value =
-    meta.kind === 'currency'
-      ? amountUSD * meta.exchangeRate
-      : amountUSD * meta.exchangeRate
-
-  return formatCurrencyValue(value, merged, meta)
+/** Format a USD amount using an explicitly provided currency configuration. */
+export function formatCurrencyFromUSDWithConfig(
+  amountUSD: number | null | undefined,
+  currency: CurrencyConfig,
+  options?: CurrencyFormatOptions
+): string {
+  return formatCurrencyFromUSDWithResolvedConfig(
+    amountUSD,
+    getConfig(currency),
+    options
+  )
 }
 
 /**

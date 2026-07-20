@@ -40,7 +40,7 @@ import type {
   ChannelFinancePeriod,
   ChannelFinanceSummary,
 } from '../../types'
-import { formatChannelFinanceMoney } from './finance-format'
+import { useChannelFinanceMoneyFormatter } from './finance-format'
 
 export function FinanceTrend(props: {
   summary?: ChannelFinanceSummary
@@ -50,6 +50,7 @@ export function FinanceTrend(props: {
 }) {
   const { t } = useTranslation()
   const { resolvedTheme } = useTheme()
+  const formatMoney = useChannelFinanceMoneyFormatter()
   const [selectedChannelID, setSelectedChannelID] = useState('all')
   const selectedChannel = props.channels.find(
     (channel) => String(channel.channel_id) === selectedChannelID
@@ -87,7 +88,7 @@ export function FinanceTrend(props: {
         {
           orient: 'left',
           label: {
-            formatMethod: (value: number) => formatChannelFinanceMoney(value),
+            formatMethod: (value: number) => formatMoney(value),
           },
         },
       ],
@@ -96,8 +97,7 @@ export function FinanceTrend(props: {
           content: [
             {
               key: (datum: { metric: string }) => datum.metric,
-              value: (datum: { value: number }) =>
-                formatChannelFinanceMoney(datum.value),
+              value: (datum: { value: number }) => formatMoney(datum.value),
             },
           ],
         },
@@ -106,7 +106,7 @@ export function FinanceTrend(props: {
       theme: resolvedTheme === 'dark' ? 'dark' : 'light',
       background: 'transparent',
     }),
-    [resolvedTheme, values]
+    [formatMoney, resolvedTheme, values]
   )
 
   return (

@@ -16,7 +16,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { formatBillingCurrencyFromUSD } from '@/lib/currency'
+import { useCallback } from 'react'
+
+import {
+  formatCurrencyFromUSD,
+  formatCurrencyFromUSDWithConfig,
+} from '@/lib/currency'
+import {
+  useSystemConfigStore,
+  type CurrencyConfig,
+} from '@/stores/system-config-store'
 
 const MONEY_FORMAT_OPTIONS = {
   digitsLarge: 2,
@@ -24,8 +33,26 @@ const MONEY_FORMAT_OPTIONS = {
   abbreviate: false,
 } as const
 
-export function formatChannelFinanceMoney(value: number): string {
-  return formatBillingCurrencyFromUSD(value, MONEY_FORMAT_OPTIONS)
+export function formatChannelFinanceMoney(
+  value: number,
+  currency?: CurrencyConfig
+): string {
+  if (currency) {
+    return formatCurrencyFromUSDWithConfig(
+      value,
+      currency,
+      MONEY_FORMAT_OPTIONS
+    )
+  }
+  return formatCurrencyFromUSD(value, MONEY_FORMAT_OPTIONS)
+}
+
+export function useChannelFinanceMoneyFormatter(): (value: number) => string {
+  const currency = useSystemConfigStore((state) => state.config.currency)
+  return useCallback(
+    (value: number) => formatChannelFinanceMoney(value, currency),
+    [currency]
+  )
 }
 
 export function formatChannelFinanceMargin(

@@ -2018,6 +2018,7 @@
     "Fixed abilities: {{success}} succeeded, {{fails}} failed": "渠道一致性修复完成：{{success}} 个成功，{{fails}} 个失败",
     "Fixed Cost": "固定成本",
     "Fixed Daily Cost": "固定日成本",
+    "Fixed Daily Cost ({{currency}})": "固定日成本（{{currency}}）",
     "Fixed Daily Cost (USD)": "固定日成本（USD）",
     "Fixed price": "固定价格",
     "Fixed price (USD)": "固定价格 (USD)",

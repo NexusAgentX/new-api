@@ -2018,6 +2018,7 @@
     "Fixed abilities: {{success}} succeeded, {{fails}} failed": "Đã sửa tính nhất quán kênh: {{success}} thành công, {{fails}} thất bại",
     "Fixed Cost": "Chi phí cố định",
     "Fixed Daily Cost": "Chi phí cố định hằng ngày",
+    "Fixed Daily Cost ({{currency}})": "Chi phí cố định hằng ngày ({{currency}})",
     "Fixed Daily Cost (USD)": "Chi phí cố định hằng ngày (USD)",
     "Fixed price": "Giá cố định",
     "Fixed price (USD)": "Giá cố định (USD)",

@@ -33,7 +33,7 @@ import { cn } from '@/lib/utils'
 import type { ChannelFinanceChannel } from '../../types'
 import {
   formatChannelFinanceMargin,
-  formatChannelFinanceMoney,
+  useChannelFinanceMoneyFormatter,
 } from './finance-format'
 
 function CostModeBadge(props: { channel: ChannelFinanceChannel }) {
@@ -51,6 +51,7 @@ export function ChannelFinanceTable(props: {
   channels: ChannelFinanceChannel[]
 }) {
   const { t } = useTranslation()
+  const formatMoney = useChannelFinanceMoneyFormatter()
   return (
     <div className='overflow-hidden rounded-lg border'>
       <div className='border-b px-4 py-3 sm:px-5'>
@@ -92,8 +93,7 @@ export function ChannelFinanceTable(props: {
                     <CostModeBadge channel={channel} />
                     {channel.cost_mode === 'fixed_daily' && (
                       <span className='text-muted-foreground text-xs tabular-nums'>
-                        {formatChannelFinanceMoney(channel.cost_setting)}/
-                        {t('day')}
+                        {formatMoney(channel.cost_setting)}/{t('day')}
                       </span>
                     )}
                     {channel.cost_mode === 'usage_ratio' && (
@@ -107,16 +107,16 @@ export function ChannelFinanceTable(props: {
                   {formatNumber(channel.request_count)}
                 </TableCell>
                 <TableCell className='text-right tabular-nums'>
-                  {formatChannelFinanceMoney(channel.revenue_usd)}
+                  {formatMoney(channel.revenue_usd)}
                 </TableCell>
                 <TableCell className='text-right tabular-nums'>
-                  {formatChannelFinanceMoney(channel.variable_cost_usd)}
+                  {formatMoney(channel.variable_cost_usd)}
                 </TableCell>
                 <TableCell className='text-right tabular-nums'>
-                  {formatChannelFinanceMoney(channel.fixed_cost_usd)}
+                  {formatMoney(channel.fixed_cost_usd)}
                 </TableCell>
                 <TableCell className='text-right tabular-nums'>
-                  {formatChannelFinanceMoney(channel.cost_usd)}
+                  {formatMoney(channel.cost_usd)}
                 </TableCell>
                 <TableCell
                   className={cn(
@@ -126,7 +126,7 @@ export function ChannelFinanceTable(props: {
                       : 'text-red-600 dark:text-red-400'
                   )}
                 >
-                  {formatChannelFinanceMoney(channel.profit_usd)}
+                  {formatMoney(channel.profit_usd)}
                 </TableCell>
                 <TableCell className='text-right tabular-nums'>
                   {formatChannelFinanceMargin(

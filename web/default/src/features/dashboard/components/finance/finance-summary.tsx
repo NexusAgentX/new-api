@@ -30,7 +30,7 @@ import { cn } from '@/lib/utils'
 import type { ChannelFinanceSummary } from '../../types'
 import {
   formatChannelFinanceMargin,
-  formatChannelFinanceMoney,
+  useChannelFinanceMoneyFormatter,
 } from './finance-format'
 
 function SummaryMetric(props: {
@@ -66,6 +66,7 @@ function SummaryMetric(props: {
 
 export function FinanceSummary(props: { summary?: ChannelFinanceSummary }) {
   const { t } = useTranslation()
+  const formatMoney = useChannelFinanceMoneyFormatter()
   const summary = props.summary
   const profit = summary?.profit_usd ?? 0
   return (
@@ -73,19 +74,19 @@ export function FinanceSummary(props: { summary?: ChannelFinanceSummary }) {
       <div className='divide-border/60 grid grid-cols-2 divide-x lg:grid-cols-4'>
         <SummaryMetric
           label={t('Billed Revenue')}
-          value={formatChannelFinanceMoney(summary?.revenue_usd ?? 0)}
+          value={formatMoney(summary?.revenue_usd ?? 0)}
           icon={Landmark}
           tone='info'
         />
         <SummaryMetric
           label={t('Channel Cost')}
-          value={formatChannelFinanceMoney(summary?.cost_usd ?? 0)}
+          value={formatMoney(summary?.cost_usd ?? 0)}
           icon={ArrowDownRight}
           tone='warning'
         />
         <SummaryMetric
           label={t('Gross Profit')}
-          value={formatChannelFinanceMoney(profit)}
+          value={formatMoney(profit)}
           icon={ArrowUpRight}
           tone={profit >= 0 ? 'success' : 'destructive'}
           valueClassName={

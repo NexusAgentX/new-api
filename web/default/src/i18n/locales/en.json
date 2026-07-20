@@ -2018,6 +2018,7 @@
     "Fixed abilities: {{success}} succeeded, {{fails}} failed": "Channel consistency repaired: {{success}} succeeded, {{fails}} failed",
     "Fixed Cost": "Fixed Cost",
     "Fixed Daily Cost": "Fixed Daily Cost",
+    "Fixed Daily Cost ({{currency}})": "Fixed Daily Cost ({{currency}})",
     "Fixed Daily Cost (USD)": "Fixed Daily Cost (USD)",
     "Fixed price": "Fixed price",
     "Fixed price (USD)": "Fixed price (USD)",

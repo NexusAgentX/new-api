@@ -2018,6 +2018,7 @@
     "Fixed abilities: {{success}} succeeded, {{fails}} failed": "チャネル整合性を修復しました：成功 {{success}} 件、失敗 {{fails}} 件",
     "Fixed Cost": "固定費",
     "Fixed Daily Cost": "日次固定費",
+    "Fixed Daily Cost ({{currency}})": "日次固定費（{{currency}}）",
     "Fixed Daily Cost (USD)": "日次固定費（USD）",
     "Fixed price": "固定価格",
     "Fixed price (USD)": "固定価格 (USD)",

@@ -2018,6 +2018,7 @@
     "Fixed abilities: {{success}} succeeded, {{fails}} failed": "Cohérence des canaux réparée : {{success}} réussie(s), {{fails}} échouée(s)",
     "Fixed Cost": "Coût fixe",
     "Fixed Daily Cost": "Coût journalier fixe",
+    "Fixed Daily Cost ({{currency}})": "Coût journalier fixe ({{currency}})",
     "Fixed Daily Cost (USD)": "Coût journalier fixe (USD)",
     "Fixed price": "Prix fixe",
     "Fixed price (USD)": "Prix fixe (USD)",

@@ -123,10 +123,16 @@ import {
   parseChannelConnectionInfo,
   type ChannelConnectionInfo,
 } from '@/lib/channel-connection-info'
+import {
+  convertDisplayAmountToUSD,
+  convertUSDToDisplayAmount,
+  getCurrencyLabel,
+} from '@/lib/currency'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { ROLE } from '@/lib/roles'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
+import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import {
   fetchModels,
@@ -614,6 +620,10 @@ export function ChannelMutateDrawer({
   const queryClient = useQueryClient()
   const { setOpen } = useChannels()
   const currentUser = useAuthStore((s) => s.auth.user)
+  const currencyConfig = useSystemConfigStore((state) => state.config.currency)
+  const currencyLabel = getCurrencyLabel()
+  const tokensOnly = currencyConfig.quotaDisplayType === 'TOKENS'
+  const fixedDailyCostCurrencyLabel = tokensOnly ? t('Tokens') : currencyLabel
   const canEditSensitive = hasPermission(
     currentUser,
     ADMIN_PERMISSION_RESOURCES.CHANNEL,
@@ -2163,21 +2173,30 @@ export function ChannelMutateDrawer({
                                 render={({ field }) => (
                                   <FormItem className='max-w-sm'>
                                     <FormLabel>
-                                      {t('Fixed Daily Cost (USD)')}
+                                      {t('Fixed Daily Cost ({{currency}})', {
+                                        currency: fixedDailyCostCurrencyLabel,
+                                      })}
                                     </FormLabel>
                                     <FormControl>
                                       <Input
                                         type='number'
                                         min={0}
-                                        max={1_000_000_000}
-                                        step='0.000001'
+                                        max={convertUSDToDisplayAmount(
+                                          1_000_000_000
+                                        )}
+                                        step={tokensOnly ? 1 : '0.000001'}
                                         inputMode='decimal'
                                         {...field}
+                                        value={convertUSDToDisplayAmount(
+                                          field.value
+                                        )}
                                         onChange={(event) =>
                                           field.onChange(
                                             event.target.value === ''
                                               ? 0
-                                              : Number(event.target.value)
+                                              : convertDisplayAmountToUSD(
+                                                  Number(event.target.value)
+                                                )
                                           )
                                         }
                                       />

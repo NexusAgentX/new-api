@@ -2018,6 +2018,7 @@
     "Fixed abilities: {{success}} succeeded, {{fails}} failed": "Согласованность каналов восстановлена: успешно {{success}}, ошибок {{fails}}",
     "Fixed Cost": "Постоянные затраты",
     "Fixed Daily Cost": "Фиксированные затраты в день",
+    "Fixed Daily Cost ({{currency}})": "Фиксированные затраты в день ({{currency}})",
     "Fixed Daily Cost (USD)": "Фиксированные затраты в день (USD)",
     "Fixed price": "Фиксированная цена",
     "Fixed price (USD)": "Фиксированная цена (USD)",
