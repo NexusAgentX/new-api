@@ -42,10 +42,10 @@ func TestCalculateTextQuotaSummaryHonorsGroupZeroQuotaSetting(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			relayInfo := &relaycommon.RelayInfo{
 				OriginModelName: "tiny-model",
-				PriceData: types.PriceData{
+				PriceData: hosttypes.PriceData{
 					ModelRatio:      1,
 					CompletionRatio: 1,
-					GroupRatioInfo: types.GroupRatioInfo{
+					GroupRatioInfo: hosttypes.GroupRatioInfo{
 						GroupRatio:     tt.groupRatio,
 						AllowZeroQuota: tt.allowZeroQuota,
 					},

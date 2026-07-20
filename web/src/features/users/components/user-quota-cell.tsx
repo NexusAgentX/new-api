@@ -18,44 +18,32 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useTranslation } from 'react-i18next'
 
-import { StatusBadge } from '@/components/status-badge'
-import { Progress } from '@/components/ui/progress'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { formatQuota } from '@/lib/format'
-import { cn } from '@/lib/utils'
 
 type UserQuotaCellProps = {
   used: number
-  remaining: number
-}
-
-function getQuotaProgressColor(percentage: number): string {
-  if (percentage <= 10) return '[&_[data-slot=progress-indicator]]:bg-rose-500'
-  if (percentage <= 30) return '[&_[data-slot=progress-indicator]]:bg-amber-500'
-  return '[&_[data-slot=progress-indicator]]:bg-emerald-500'
+  balance: number
+  creditQuota: number
+  availableQuota: number
+  group: string
 }
 
 export function UserQuotaCell(props: UserQuotaCellProps) {
   const { t } = useTranslation()
-  const total = props.used + props.remaining
-  const percentage = total > 0 ? (props.remaining / total) * 100 : 0
-  const formattedRemaining = formatQuota(props.remaining)
-  const formattedTotal = formatQuota(total)
-
-  if (total === 0) {
-    return (
-      <StatusBadge
-        label={t('No Quota')}
-        variant='neutral'
-        copyable={false}
-        className='-ml-1.5'
-      />
-    )
-  }
+  const usedQuota = Math.max(props.used, 0)
+  const creditQuota = Math.max(props.creditQuota, 0)
+  const walletBalance = Math.max(props.balance, 0)
+  const walletTotal = usedQuota + walletBalance
+  const walletUsedPercent =
+    walletTotal > 0 ? Math.min((usedQuota / walletTotal) * 100, 100) : 0
+  const usedCredit = Math.min(Math.max(-props.balance, 0), creditQuota)
+  const creditUsedPercent =
+    creditQuota > 0 ? (usedCredit / creditQuota) * 100 : 0
 
   return (
     <Tooltip>
@@ -65,31 +53,66 @@ export function UserQuotaCell(props: UserQuotaCellProps) {
         }
       >
         <div className='grid min-w-0 grid-cols-2 gap-x-4 text-xs'>
-          <span className='min-w-0 truncate font-medium tabular-nums'>
-            {formattedRemaining}
-          </span>
-          <span className='text-muted-foreground min-w-0 truncate text-right tabular-nums'>
-            {formattedTotal}
-          </span>
+          <div className='min-w-0'>
+            <div className='text-muted-foreground truncate'>
+              {t('Current Balance')}
+            </div>
+            <div className='truncate font-medium tabular-nums'>
+              {formatQuota(props.balance)}
+            </div>
+          </div>
+          <div className='min-w-0 text-right'>
+            <div className='text-muted-foreground truncate'>
+              {t('Available to spend')}
+            </div>
+            <div className='truncate font-medium tabular-nums'>
+              {formatQuota(props.availableQuota)}
+            </div>
+          </div>
         </div>
-        <Progress
-          value={percentage}
-          className={cn('h-1.5', getQuotaProgressColor(percentage))}
-        />
+        <div className='bg-muted relative h-2 overflow-hidden rounded-full'>
+          <div
+            role='progressbar'
+            aria-label={t('Used Quota')}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(walletUsedPercent)}
+            className='bg-primary absolute inset-y-0 left-0 rounded-full transition-[width]'
+            style={{ width: `${walletUsedPercent}%` }}
+          />
+          {usedCredit > 0 && (
+            <div
+              role='progressbar'
+              aria-label={t('Using credit')}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(creditUsedPercent)}
+              className='absolute inset-y-0.5 left-0 rounded-full bg-amber-500 transition-[width]'
+              style={{ width: `${creditUsedPercent}%` }}
+            />
+          )}
+        </div>
       </TooltipTrigger>
       <TooltipContent>
         <div className='space-y-1 text-xs'>
           <div>
-            {t('Used:')} {formatQuota(props.used)}
+            {t('Total Usage')}: {formatQuota(usedQuota)}
           </div>
           <div>
-            {t('Remaining:')} {formattedRemaining}
+            {t('Total Quota')}: {formatQuota(walletTotal)}
           </div>
           <div>
-            {t('Total:')} {formattedTotal}
+            {t('Current Balance')}: {formatQuota(props.balance)}
           </div>
           <div>
-            {t('Percentage:')} {percentage.toFixed(1)}%
+            {t('Credit limit for {{group}}', { group: props.group })}:{' '}
+            {formatQuota(creditQuota)}
+          </div>
+          <div>
+            {t('Using credit')}: {formatQuota(usedCredit)}
+          </div>
+          <div>
+            {t('Available to spend')}: {formatQuota(props.availableQuota)}
           </div>
         </div>
       </TooltipContent>

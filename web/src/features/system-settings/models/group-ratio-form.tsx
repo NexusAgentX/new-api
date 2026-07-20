@@ -73,6 +73,7 @@ type GroupFormValues = {
   MaxTokenAutoGroups: number
   DefaultUseAutoGroup: boolean
   GroupAllowZeroQuota: string
+  GroupCreditQuota: string
   GroupSpecialUsableGroup: string
 }
 
@@ -108,6 +109,7 @@ export const GroupRatioForm = memo(function GroupRatioForm({
   const watchedGroupRatio = form.watch('GroupRatio')
   const watchedUserUsableGroups = form.watch('UserUsableGroups')
   const watchedTopupGroupRatio = form.watch('TopupGroupRatio')
+  const watchedGroupCreditQuota = form.watch('GroupCreditQuota')
   const groupNames = useMemo(() => {
     const ratioMap = safeJsonParse<Record<string, number>>(watchedGroupRatio, {
       fallback: {},
@@ -121,14 +123,24 @@ export const GroupRatioForm = memo(function GroupRatioForm({
       watchedTopupGroupRatio,
       { fallback: {}, silent: true }
     )
+    const creditMap = safeJsonParse<Record<string, number>>(
+      watchedGroupCreditQuota,
+      { fallback: {}, silent: true }
+    )
     return [
       ...new Set([
         ...Object.keys(ratioMap),
         ...Object.keys(usableMap),
         ...Object.keys(topupMap),
+        ...Object.keys(creditMap),
       ]),
     ]
-  }, [watchedGroupRatio, watchedUserUsableGroups, watchedTopupGroupRatio])
+  }, [
+    watchedGroupRatio,
+    watchedUserUsableGroups,
+    watchedTopupGroupRatio,
+    watchedGroupCreditQuota,
+  ])
 
   return (
     <div className='space-y-6'>
@@ -202,6 +214,7 @@ export const GroupRatioForm = memo(function GroupRatioForm({
                 />
               }
               groupAllowZeroQuota={form.watch('GroupAllowZeroQuota')}
+              groupCreditQuota={form.watch('GroupCreditQuota')}
               groupSpecialUsableGroup={form.watch('GroupSpecialUsableGroup')}
               onChange={(field, value) =>
                 handleFieldChange(field as keyof GroupFormValues, value)
@@ -284,6 +297,31 @@ export const GroupRatioForm = memo(function GroupRatioForm({
                   <FormDescription>
                     {t(
                       'JSON map of group → whether a positive charge may round to zero quota.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='GroupCreditQuota'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Group credit limits')}</FormLabel>
+                  <FormControl>
+                    <JsonCodeEditor
+                      value={field.value}
+                      onChange={field.onChange}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      textareaRef={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'JSON map of user group to credit limit in internal quota units. Missing groups have no credit.'
                     )}
                   </FormDescription>
                   <FormMessage />

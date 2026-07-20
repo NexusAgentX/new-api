@@ -20,6 +20,7 @@ import (
 	"github.com/QuantumNous/new-api/service/authz"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/QuantumNous/new-api/constant"
 
@@ -323,6 +324,11 @@ func Register(c *gin.Context) {
 	return
 }
 
+func attachUserCreditQuota(user *model.User) {
+	user.CreditQuota = ratio_setting.GetGroupCreditQuota(user.Group)
+	user.AvailableQuota = ratio_setting.GetGroupAvailableQuota(user.Group, user.Quota)
+}
+
 func GetAllUsers(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
 	sortOptions := model.NewUserSortOptions(c.Query("sort_by"), c.Query("sort_order"))
@@ -330,6 +336,9 @@ func GetAllUsers(c *gin.Context) {
 	if err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	for _, user := range users {
+		attachUserCreditQuota(user)
 	}
 
 	pageInfo.SetTotal(int(total))
@@ -362,6 +371,9 @@ func SearchUsers(c *gin.Context) {
 		return
 	}
 
+	for _, user := range users {
+		attachUserCreditQuota(user)
+	}
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(users)
 	common.ApiSuccess(c, pageInfo)
@@ -389,6 +401,7 @@ func GetUser(c *gin.Context) {
 		return
 	}
 	user.AdminPermissions = authz.Capabilities(user.Id, user.Role)
+	attachUserCreditQuota(user)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -516,6 +529,7 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 	userSetting := user.GetSetting()
 	permissions := calculateUserPermissions(user.Role)
 	permissions["admin_permissions"] = authz.Capabilities(user.Id, user.Role)
+	creditQuota := ratio_setting.GetGroupCreditQuota(user.Group)
 	return map[string]interface{}{
 		"id":                user.Id,
 		"username":          user.Username,
@@ -530,6 +544,8 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 		"telegram_id":       user.TelegramId,
 		"group":             user.Group,
 		"quota":             user.Quota,
+		"credit_quota":      creditQuota,
+		"available_quota":   ratio_setting.GetGroupAvailableQuota(user.Group, user.Quota),
 		"used_quota":        user.UsedQuota,
 		"request_count":     user.RequestCount,
 		"aff_code":          user.AffCode,

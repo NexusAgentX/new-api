@@ -5,6 +5,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 )
 
@@ -13,6 +14,7 @@ func GetSubscription(c *gin.Context) {
 	var usedQuota int
 	var err error
 	var token *model.Token
+	var creditQuota int
 	var expiredTime int64
 	if common.DisplayTokenStatEnabled {
 		tokenId := c.GetInt("token_id")
@@ -24,6 +26,9 @@ func GetSubscription(c *gin.Context) {
 		userId := c.GetInt("id")
 		remainQuota, err = model.GetUserQuota(userId, false)
 		usedQuota, err = model.GetUserUsedQuota(userId)
+		if group, groupErr := model.GetUserGroup(userId, false); groupErr == nil {
+			creditQuota = ratio_setting.GetGroupCreditQuota(group)
+		}
 	}
 	if expiredTime <= 0 {
 		expiredTime = 0
@@ -38,7 +43,7 @@ func GetSubscription(c *gin.Context) {
 		})
 		return
 	}
-	quota := remainQuota + usedQuota
+	quota := remainQuota + usedQuota + creditQuota
 	amount := float64(quota)
 	// OpenAI 兼容接口中的 *_USD 字段含义保持“额度单位”对应值：
 	// 我们将其解释为以“站点展示类型”为准：

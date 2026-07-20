@@ -2,6 +2,7 @@ package model
 
 import (
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -172,6 +173,71 @@ func TestValidateAndFillRejectsPasswordlessUser(t *testing.T) {
 	var stored User
 	require.NoError(t, DB.Where("username = ?", "passwordless-user").First(&stored).Error)
 	assert.Empty(t, stored.Password)
+}
+
+func TestDecreaseUserQuotaWithLimitStopsAtCreditBoundary(t *testing.T) {
+	setupUserUpdateTestState(t)
+	common.BatchUpdateEnabled = true
+
+	user := User{
+		Id:       40,
+		Username: "credit-user",
+		Password: "password",
+		Status:   common.UserStatusEnabled,
+		Quota:    0,
+	}
+	require.NoError(t, DB.Create(&user).Error)
+
+	require.NoError(t, DecreaseUserQuotaWithLimit(user.Id, 60, -100))
+	require.ErrorIs(t, DecreaseUserQuotaWithLimit(user.Id, 50, -100), ErrUserQuotaInsufficient)
+
+	balance, err := GetUserQuota(user.Id, true)
+	require.NoError(t, err)
+	assert.Equal(t, -60, balance)
+}
+
+func TestDecreaseUserQuotaWithLimitIsAtomicAcrossConcurrentReservations(t *testing.T) {
+	setupUserUpdateTestState(t)
+
+	user := User{
+		Id:       41,
+		Username: "concurrent-credit-user",
+		Password: "password",
+		Status:   common.UserStatusEnabled,
+		Quota:    0,
+	}
+	require.NoError(t, DB.Create(&user).Error)
+
+	results := make(chan error, 2)
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results <- DecreaseUserQuotaWithLimit(user.Id, 70, -100)
+		}()
+	}
+	wg.Wait()
+	close(results)
+
+	var successCount int
+	var insufficientCount int
+	for err := range results {
+		switch {
+		case err == nil:
+			successCount++
+		case errors.Is(err, ErrUserQuotaInsufficient):
+			insufficientCount++
+		default:
+			require.NoError(t, err)
+		}
+	}
+	assert.Equal(t, 1, successCount)
+	assert.Equal(t, 1, insufficientCount)
+
+	balance, err := GetUserQuota(user.Id, true)
+	require.NoError(t, err)
+	assert.Equal(t, -70, balance)
 }
 
 func TestResetUserPasswordByEmailRequiresSingleActiveMatch(t *testing.T) {

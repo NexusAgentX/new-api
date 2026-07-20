@@ -3,6 +3,7 @@ package service
 import (
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 )
 
@@ -27,8 +28,9 @@ type FundingSource interface {
 // ---------------------------------------------------------------------------
 
 type WalletFunding struct {
-	userId   int
-	consumed int // 实际预扣的用户额度
+	userId      int
+	creditQuota int
+	consumed    int // 实际预扣的用户额度
 }
 
 func (w *WalletFunding) Source() string { return BillingSourceWallet }
@@ -37,10 +39,16 @@ func (w *WalletFunding) PreConsume(amount int) error {
 	if amount <= 0 {
 		return nil
 	}
-	if err := model.DecreaseUserQuota(w.userId, amount, false); err != nil {
+	var err error
+	if w.creditQuota > 0 {
+		err = model.DecreaseUserQuotaWithLimit(w.userId, amount, -w.creditQuota)
+	} else {
+		err = model.DecreaseUserQuota(w.userId, amount, false)
+	}
+	if err != nil {
 		return err
 	}
-	w.consumed = amount
+	w.consumed += amount
 	return nil
 }
 
@@ -49,9 +57,15 @@ func (w *WalletFunding) Settle(delta int) error {
 		return nil
 	}
 	if delta > 0 {
+		// Final provider usage must be captured even when it exceeds the
+		// estimate. The credit limit controls new request authorization,
+		// while the storage bound prevents int32 balance underflow.
+		if w.creditQuota > 0 {
+			return model.DecreaseUserQuotaWithLimit(w.userId, delta, common.MinQuota)
+		}
 		return model.DecreaseUserQuota(w.userId, delta, false)
 	}
-	return model.IncreaseUserQuota(w.userId, -delta, false)
+	return model.IncreaseUserQuota(w.userId, -delta, w.creditQuota > 0)
 }
 
 func (w *WalletFunding) Refund() error {
@@ -60,7 +74,7 @@ func (w *WalletFunding) Refund() error {
 	}
 	// IncreaseUserQuota 是 quota += N 的非幂等操作，不能重试，否则会多退额度。
 	// 订阅的 RefundSubscriptionPreConsume 有 requestId 幂等保护所以可以重试。
-	return model.IncreaseUserQuota(w.userId, w.consumed, false)
+	return model.IncreaseUserQuota(w.userId, w.consumed, w.creditQuota > 0)
 }
 
 // ---------------------------------------------------------------------------
