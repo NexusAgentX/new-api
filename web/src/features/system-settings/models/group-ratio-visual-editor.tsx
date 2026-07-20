@@ -68,6 +68,8 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
+import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
+import { parseQuotaFromDollars, quotaUnitsToDollars } from '@/lib/format'
 
 import { safeJsonParse } from '../utils/json-parser'
 
@@ -78,6 +80,7 @@ type GroupRatioVisualEditorProps = {
   groupGroupRatio: string
   autoGroups: string
   groupAllowZeroQuota: string
+  groupCreditQuota: string
   groupSpecialUsableGroup: string
   onChange: (field: string, value: string) => void
 }
@@ -87,6 +90,7 @@ type GroupPricingRow = {
   name: string
   ratio: string
   topupRatio: string
+  creditLimit: string
   allowZeroQuota: boolean
   selectable: boolean
   description: string
@@ -146,17 +150,20 @@ function buildGroupPricingRows(
   groupRatio: string,
   userUsableGroups: string,
   topupGroupRatio: string,
-  groupAllowZeroQuota: string
+  groupAllowZeroQuota: string,
+  groupCreditQuota: string
 ): GroupPricingRow[] {
   const ratioMap = parseRatioMap(groupRatio)
   const usableMap = parseUsableMap(userUsableGroups)
   const topupMap = parseRatioMap(topupGroupRatio)
   const allowZeroMap = parseBooleanMap(groupAllowZeroQuota)
+  const creditMap = parseRatioMap(groupCreditQuota)
   const names = new Set([
     ...Object.keys(ratioMap),
     ...Object.keys(usableMap),
     ...Object.keys(topupMap),
     ...Object.keys(allowZeroMap),
+    ...Object.keys(creditMap),
   ])
 
   return [...names].map((name) => ({
@@ -164,6 +171,7 @@ function buildGroupPricingRows(
     name,
     ratio: String(normalizeRatio(ratioMap[name])),
     topupRatio: Object.hasOwn(topupMap, name) ? String(topupMap[name]) : '',
+    creditLimit: String(quotaUnitsToDollars(creditMap[name] ?? 0)),
     allowZeroQuota: allowZeroMap[name] === true,
     selectable: Object.hasOwn(usableMap, name),
     description: String(usableMap[name] ?? ''),
@@ -175,12 +183,16 @@ function serializeGroupPricingRows(rows: GroupPricingRow[]) {
   const userUsableGroups: Record<string, string> = {}
   const topupGroupRatio: Record<string, number> = {}
   const groupAllowZeroQuota: Record<string, boolean> = {}
+  const groupCreditQuota: Record<string, number> = {}
 
   for (const row of rows) {
     const name = row.name.trim()
     if (!name) continue
     groupRatio[name] = normalizeRatio(row.ratio)
     groupAllowZeroQuota[name] = row.allowZeroQuota
+    groupCreditQuota[name] = parseQuotaFromDollars(
+      Math.max(0, Number(row.creditLimit) || 0)
+    )
     if (row.selectable) {
       userUsableGroups[name] = row.description
     }
@@ -195,6 +207,7 @@ function serializeGroupPricingRows(rows: GroupPricingRow[]) {
     UserUsableGroups: JSON.stringify(userUsableGroups, null, 2),
     TopupGroupRatio: JSON.stringify(topupGroupRatio, null, 2),
     GroupAllowZeroQuota: JSON.stringify(groupAllowZeroQuota, null, 2),
+    GroupCreditQuota: JSON.stringify(groupCreditQuota, null, 2),
   }
 }
 
@@ -205,6 +218,7 @@ function groupPricingSignature(rows: GroupPricingRow[]): string {
     userUsableGroups: parseUsableMap(serialized.UserUsableGroups),
     topupGroupRatio: parseRatioMap(serialized.TopupGroupRatio),
     groupAllowZeroQuota: parseBooleanMap(serialized.GroupAllowZeroQuota),
+    groupCreditQuota: parseRatioMap(serialized.GroupCreditQuota),
   })
 }
 
@@ -212,13 +226,15 @@ function sourceGroupPricingSignature(
   groupRatio: string,
   userUsableGroups: string,
   topupGroupRatio: string,
-  groupAllowZeroQuota: string
+  groupAllowZeroQuota: string,
+  groupCreditQuota: string
 ): string {
   return JSON.stringify({
     groupRatio: parseRatioMap(groupRatio),
     userUsableGroups: parseUsableMap(userUsableGroups),
     topupGroupRatio: parseRatioMap(topupGroupRatio),
     groupAllowZeroQuota: parseBooleanMap(groupAllowZeroQuota),
+    groupCreditQuota: parseRatioMap(groupCreditQuota),
   })
 }
 
@@ -278,6 +294,7 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
   groupGroupRatio,
   autoGroups,
   groupAllowZeroQuota,
+  groupCreditQuota,
   groupSpecialUsableGroup,
   onChange,
 }: GroupRatioVisualEditorProps) {
@@ -289,17 +306,25 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
     const usableMap = parseUsableMap(userUsableGroups)
     const topupMap = parseRatioMap(topupGroupRatio)
     const allowZeroMap = parseBooleanMap(groupAllowZeroQuota)
+    const creditMap = parseRatioMap(groupCreditQuota)
     const names = new Set([
       ...Object.keys(ratioMap),
       ...Object.keys(usableMap),
       ...Object.keys(topupMap),
       ...Object.keys(allowZeroMap),
+      ...Object.keys(creditMap),
     ])
     return [...names].map((name) => ({
       name,
       ratio: normalizeRatio(ratioMap[name]),
     }))
-  }, [groupRatio, userUsableGroups, topupGroupRatio, groupAllowZeroQuota])
+  }, [
+    groupRatio,
+    userUsableGroups,
+    topupGroupRatio,
+    groupAllowZeroQuota,
+    groupCreditQuota,
+  ])
 
   const registryNames = useMemo(
     () => registry.map((entry) => entry.name),
@@ -353,6 +378,7 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
         userUsableGroups={userUsableGroups}
         topupGroupRatio={topupGroupRatio}
         groupAllowZeroQuota={groupAllowZeroQuota}
+        groupCreditQuota={groupCreditQuota}
         onChange={onChange}
         onShowDetail={setDetailGroup}
       />
@@ -445,6 +471,7 @@ type GroupPricingTableProps = {
   userUsableGroups: string
   topupGroupRatio: string
   groupAllowZeroQuota: string
+  groupCreditQuota: string
   onChange: (field: string, value: string) => void
   onShowDetail: (name: string) => void
 }
@@ -454,16 +481,21 @@ function GroupPricingTable({
   userUsableGroups,
   topupGroupRatio,
   groupAllowZeroQuota,
+  groupCreditQuota,
   onChange,
   onShowDetail,
 }: GroupPricingTableProps) {
   const { t } = useTranslation()
+  const { meta: currencyMeta } = getCurrencyDisplay()
+  const currencyLabel = getCurrencyLabel()
+  const creditStep = currencyMeta.kind === 'tokens' ? 1 : 0.01
   const [rows, setRows] = useState<GroupPricingRow[]>(() =>
     buildGroupPricingRows(
       groupRatio,
       userUsableGroups,
       topupGroupRatio,
-      groupAllowZeroQuota
+      groupAllowZeroQuota,
+      groupCreditQuota
     )
   )
 
@@ -472,7 +504,8 @@ function GroupPricingTable({
       groupRatio,
       userUsableGroups,
       topupGroupRatio,
-      groupAllowZeroQuota
+      groupAllowZeroQuota,
+      groupCreditQuota
     )
     setRows((currentRows) => {
       if (groupPricingSignature(currentRows) === incomingSignature) {
@@ -482,10 +515,17 @@ function GroupPricingTable({
         groupRatio,
         userUsableGroups,
         topupGroupRatio,
-        groupAllowZeroQuota
+        groupAllowZeroQuota,
+        groupCreditQuota
       )
     })
-  }, [groupRatio, userUsableGroups, topupGroupRatio, groupAllowZeroQuota])
+  }, [
+    groupRatio,
+    userUsableGroups,
+    topupGroupRatio,
+    groupAllowZeroQuota,
+    groupCreditQuota,
+  ])
 
   const emitRows = useCallback(
     (nextRows: GroupPricingRow[]) => {
@@ -495,6 +535,7 @@ function GroupPricingTable({
       onChange('UserUsableGroups', serialized.UserUsableGroups)
       onChange('TopupGroupRatio', serialized.TopupGroupRatio)
       onChange('GroupAllowZeroQuota', serialized.GroupAllowZeroQuota)
+      onChange('GroupCreditQuota', serialized.GroupCreditQuota)
     },
     [onChange]
   )
@@ -527,6 +568,7 @@ function GroupPricingTable({
         name,
         ratio: '1',
         topupRatio: '',
+        creditLimit: '0',
         allowZeroQuota: false,
         selectable: true,
         description: '',
@@ -623,6 +665,28 @@ function GroupPricingTable({
                     onChange={(event) =>
                       updateRow(row._id, 'topupRatio', event.target.value)
                     }
+                  />
+                ),
+              },
+              {
+                id: 'credit-limit',
+                header: t('Credit limit ({{currency}})', {
+                  currency: currencyLabel,
+                }),
+                className: 'w-36',
+                cell: (row) => (
+                  <Input
+                    type='number'
+                    min={0}
+                    max={quotaUnitsToDollars(2147483647)}
+                    step={creditStep}
+                    value={row.creditLimit}
+                    onChange={(event) =>
+                      updateRow(row._id, 'creditLimit', event.target.value)
+                    }
+                    aria-label={t('Credit limit for {{group}}', {
+                      group: row.name,
+                    })}
                   />
                 ),
               },

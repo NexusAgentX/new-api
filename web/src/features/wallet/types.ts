@@ -230,6 +230,10 @@ export interface UserWalletData {
   username: string
   /** Current quota balance */
   quota: number
+  /** Group wallet credit limit */
+  credit_quota: number
+  /** Balance plus group credit limit */
+  available_quota: number
   /** Total used quota */
   used_quota: number
   /** Total request count */

@@ -16,6 +16,7 @@ var defaultGroupRatio = map[string]float64{
 
 var groupRatioMap = types.NewRWMap[string, float64]()
 var groupAllowZeroQuotaMap = types.NewRWMap[string, bool]()
+var groupCreditQuotaMap = types.NewRWMap[string, int]()
 
 var defaultGroupGroupRatio = map[string]map[string]float64{
 	"vip": {
@@ -30,6 +31,7 @@ var defaultGroupSpecialUsableGroup = map[string]map[string]string{}
 type GroupRatioSetting struct {
 	GroupRatio              *types.RWMap[string, float64]            `json:"group_ratio"`
 	GroupAllowZeroQuota     *types.RWMap[string, bool]               `json:"group_allow_zero_quota"`
+	GroupCreditQuota        *types.RWMap[string, int]                `json:"group_credit_quota"`
 	GroupGroupRatio         *types.RWMap[string, map[string]float64] `json:"group_group_ratio"`
 	GroupSpecialUsableGroup *types.RWMap[string, map[string]string]  `json:"group_special_usable_group"`
 }
@@ -47,6 +49,7 @@ func init() {
 		GroupSpecialUsableGroup: groupSpecialUsableGroup,
 		GroupRatio:              groupRatioMap,
 		GroupAllowZeroQuota:     groupAllowZeroQuotaMap,
+		GroupCreditQuota:        groupCreditQuotaMap,
 		GroupGroupRatio:         groupGroupRatioMap,
 	}
 
@@ -60,6 +63,9 @@ func GetGroupRatioSetting() *GroupRatioSetting {
 	}
 	if groupRatioSetting.GroupAllowZeroQuota == nil {
 		groupRatioSetting.GroupAllowZeroQuota = groupAllowZeroQuotaMap
+	}
+	if groupRatioSetting.GroupCreditQuota == nil {
+		groupRatioSetting.GroupCreditQuota = groupCreditQuotaMap
 	}
 	return &groupRatioSetting
 }
@@ -93,6 +99,18 @@ func GetGroupRatio(name string) float64 {
 func IsZeroQuotaAllowed(name string) bool {
 	allowed, ok := groupAllowZeroQuotaMap.Get(name)
 	return ok && allowed
+}
+
+func GetGroupCreditQuota(name string) int {
+	quota, ok := groupCreditQuotaMap.Get(name)
+	if !ok || quota < 0 || quota > common.MaxQuota {
+		return 0
+	}
+	return quota
+}
+
+func GetGroupAvailableQuota(name string, balance int) int64 {
+	return int64(balance) + int64(GetGroupCreditQuota(name))
 }
 
 func GetGroupGroupRatio(userGroup, usingGroup string) (float64, bool) {
@@ -138,6 +156,25 @@ func CheckGroupAllowZeroQuota(jsonStr string) error {
 	}
 	if settings == nil {
 		return errors.New("group zero quota setting must be a JSON object")
+	}
+	return nil
+}
+
+func CheckGroupCreditQuota(jsonStr string) error {
+	settings := make(map[string]int)
+	if err := common.Unmarshal([]byte(jsonStr), &settings); err != nil {
+		return err
+	}
+	if settings == nil {
+		return errors.New("group credit quota setting must be a JSON object")
+	}
+	for name, quota := range settings {
+		if quota < 0 {
+			return errors.New("group credit quota must be not less than 0: " + name)
+		}
+		if quota > common.MaxQuota {
+			return errors.New("group credit quota exceeds maximum quota: " + name)
+		}
 	}
 	return nil
 }

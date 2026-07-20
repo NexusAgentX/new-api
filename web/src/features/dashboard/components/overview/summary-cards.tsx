@@ -100,20 +100,25 @@ function getSummarySparkline(
 }
 
 function getRunwayDays(
-  remainQuota: number,
+  availableQuota: number,
   recentUsage: number
 ): number | null {
-  if (remainQuota <= 0 || recentUsage <= 0) return null
-  const days = remainQuota / recentUsage
+  if (availableQuota <= 0 || recentUsage <= 0) return null
+  const days = availableQuota / recentUsage
   if (!Number.isFinite(days)) return null
   return days
 }
 
-type HealthLevel = 'healthy' | 'caution' | 'critical'
+type HealthLevel = 'healthy' | 'caution' | 'credit' | 'critical'
 
-function getHealthLevel(remainQuota: number, recentUsage: number): HealthLevel {
-  if (remainQuota <= 0) return 'critical'
-  const days = getRunwayDays(remainQuota, recentUsage)
+function getHealthLevel(
+  balance: number,
+  availableQuota: number,
+  recentUsage: number
+): HealthLevel {
+  if (availableQuota <= 0) return 'critical'
+  if (balance < 0) return 'credit'
+  const days = getRunwayDays(availableQuota, recentUsage)
   if (days !== null && days < 3) return 'caution'
   return 'healthy'
 }
@@ -130,6 +135,10 @@ const HEALTH_CONFIG: Record<
     dotClass: 'bg-warning',
     labelKey: 'Low balance',
   },
+  credit: {
+    dotClass: 'bg-info',
+    labelKey: 'Using credit',
+  },
   critical: {
     dotClass: 'bg-destructive',
     labelKey: 'Balance depleted',
@@ -143,6 +152,10 @@ export function SummaryCards() {
 
   const summaryTimeRange = useMemo(() => computeTimeRange(1), [])
   const remainQuota = Number(user?.quota ?? 0)
+  const creditQuota = Number(user?.credit_quota ?? 0)
+  const availableQuota = Number(
+    user?.available_quota ?? remainQuota + creditQuota
+  )
   const usedQuota = Number(user?.used_quota ?? 0)
   const requestCount = Number(user?.request_count ?? 0)
 
@@ -185,12 +198,12 @@ export function SummaryCards() {
     () =>
       buildSummarySparklines(
         usageTrendQuery.data?.data ?? [],
-        remainQuota,
+        availableQuota,
         summaryTimeRange.start_timestamp,
         summaryTimeRange.end_timestamp
       ),
     [
-      remainQuota,
+      availableQuota,
       summaryTimeRange.end_timestamp,
       summaryTimeRange.start_timestamp,
       usageTrendQuery.data?.data,
@@ -206,9 +219,9 @@ export function SummaryCards() {
     [usageTrendQuery.data?.data]
   )
 
-  const healthLevel = getHealthLevel(remainQuota, recentUsage)
+  const healthLevel = getHealthLevel(remainQuota, availableQuota, recentUsage)
   const healthCfg = HEALTH_CONFIG[healthLevel]
-  const runwayDays = getRunwayDays(remainQuota, recentUsage)
+  const runwayDays = getRunwayDays(availableQuota, recentUsage)
 
   const todayUsageDisplay = formatQuota(recentUsage)
   let runwayDisplay: string
@@ -220,7 +233,7 @@ export function SummaryCards() {
     } else {
       runwayDisplay = `~${formatNumber(Math.floor(runwayDays))} ${t('days')}`
     }
-  } else if (remainQuota <= 0) {
+  } else if (availableQuota <= 0) {
     runwayDisplay = t('Balance depleted')
   } else {
     runwayDisplay = t('No recent usage')

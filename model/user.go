@@ -93,6 +93,8 @@ type User struct {
 	VerificationCode string                     `json:"verification_code" gorm:"-:all"`                         // this field is only for Email verification, don't save it to database!
 	AccessToken      *string                    `json:"-" gorm:"type:char(32);column:access_token;uniqueIndex"` // this token is for system management
 	Quota            int                        `json:"quota" gorm:"type:int;default:0"`
+	CreditQuota      int                        `json:"credit_quota,omitempty" gorm:"-:all"`
+	AvailableQuota   int64                      `json:"available_quota,omitempty" gorm:"-:all"`
 	UsedQuota        int                        `json:"used_quota" gorm:"type:int;default:0;column:used_quota"` // used quota
 	RequestCount     int                        `json:"request_count" gorm:"type:int;default:0;"`               // request number
 	Group            string                     `json:"group" gorm:"type:varchar(64);default:'default'"`
@@ -1277,6 +1279,31 @@ func decreaseUserQuota(id int, quota int) (err error) {
 		return err
 	}
 	return err
+}
+
+// DecreaseUserQuotaWithLimit atomically reserves wallet quota without letting
+// the resulting balance cross minQuota. It intentionally bypasses batch
+// updates because delayed database writes cannot enforce a credit boundary.
+func DecreaseUserQuotaWithLimit(id int, quota int, minQuota int) error {
+	if quota < 0 {
+		return errors.New("quota 不能为负数！")
+	}
+	threshold := int64(minQuota) + int64(quota)
+	result := DB.Model(&User{}).
+		Where("id = ? AND quota >= ?", id, threshold).
+		Update("quota", gorm.Expr("quota - ?", quota))
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrUserQuotaInsufficient
+	}
+	gopool.Go(func() {
+		if err := cacheDecrUserQuota(id, int64(quota)); err != nil {
+			common.SysLog("failed to decrease user quota cache: " + err.Error())
+		}
+	})
+	return nil
 }
 
 func DeltaUpdateUserQuota(id int, delta int) (err error) {

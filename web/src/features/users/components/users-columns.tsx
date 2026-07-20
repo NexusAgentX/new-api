@@ -166,7 +166,19 @@ export function useUsersColumns(): ColumnDef<User>[] {
       header: t('Quota'),
       cell: ({ row }) => {
         const user = row.original
-        return <UserQuotaCell used={user.used_quota} remaining={user.quota} />
+        const balance = user.quota
+        const creditQuota = user.credit_quota ?? 0
+        const availableQuota = user.available_quota ?? balance + creditQuota
+
+        return (
+          <UserQuotaCell
+            used={user.used_quota}
+            balance={balance}
+            creditQuota={creditQuota}
+            availableQuota={availableQuota}
+            group={user.group}
+          />
+        )
       },
       size: 300,
       minSize: 260,

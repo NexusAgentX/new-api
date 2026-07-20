@@ -597,6 +597,7 @@ func RelayTask(c *gin.Context) {
 			ChannelCostMode:   channelFinance.CostMode,
 			ChannelCostUSD:    channelFinance.CostUSD,
 			ChannelCostRatio:  channelFinance.CostRatio,
+			WalletCreditQuota: relayInfo.WalletCreditQuota,
 		}
 		task.Quota = result.Quota
 		task.Data = result.TaskData

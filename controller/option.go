@@ -253,6 +253,15 @@ func UpdateOption(c *gin.Context) {
 			})
 			return
 		}
+	case "group_ratio_setting.group_credit_quota":
+		err = ratio_setting.CheckGroupCreditQuota(option.Value.(string))
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return
+		}
 	case "finance_setting.infrastructure_daily_cost_usd":
 		value, parseErr := strconv.ParseFloat(option.Value.(string), 64)
 		if parseErr != nil {
