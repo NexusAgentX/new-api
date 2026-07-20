@@ -46,11 +46,6 @@ jobs:
           DISABLE_ESLINT_PLUGIN='true' \
             VITE_REACT_APP_VERSION="$(cat ../../VERSION)" \
             bun run build
-          cd ..
-          bun install --filter ./classic --frozen-lockfile
-          cd classic
-          VITE_REACT_APP_VERSION="$(cat ../../VERSION)" \
-            bun run build
 
       - name: Download Go modules
         run: go mod download
@@ -59,7 +54,7 @@ jobs:
         run: go test ./...
 
   frontend:
-    name: Frontend builds
+    name: Frontend build
     if: github.repository == 'NexusAgentX/new-api'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -82,14 +77,4 @@ jobs:
           cd default
           DISABLE_ESLINT_PLUGIN='true' \
             VITE_REACT_APP_VERSION="$(cat ../../VERSION)" \
-            bun run build
-
-      - name: Build classic frontend
-        env:
-          CI: ""
-        run: |
-          cd web
-          bun install --filter ./classic --frozen-lockfile
-          cd classic
-          VITE_REACT_APP_VERSION="$(cat ../../VERSION)" \
             bun run build

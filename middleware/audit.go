@@ -91,9 +91,6 @@ var auditRouteActions = map[string]string{
 	"POST /api/subscription/admin/plans":    "subscription.plan_create",
 	"PUT /api/subscription/admin/plans/:id": "subscription.plan_update",
 	"POST /api/subscription/admin/bind":     "subscription.bind",
-
-	// 日志
-	"DELETE /api/log/": "log.clear",
 }
 
 // beginAdminAudit 在管理/root 写操作进入 handler 前包装 ResponseWriter，
@@ -155,7 +152,7 @@ func finishAdminAudit(c *gin.Context, writer *auditResponseWriter) {
 		opParams["route"] = route
 	}
 
-	// content 为英文兜底文本（导出/经典前端用）。
+	// content 为英文兜底文本（供导出等非本地化消费者使用）。
 	content := method + " " + route
 
 	adminInfo := map[string]interface{}{

@@ -42,11 +42,10 @@ The workflow can also be run manually from GitHub Actions.
 
 ## Validation
 
-The `Nexus validation` workflow runs the Go backend tests and builds both the
-default and classic frontends for pushes and pull requests targeting `nexus`.
-The backend embeds both frontend `dist` directories, so build them before
-running the full Go test suite. Run the same checks locally before pushing
-when practical:
+The `Nexus validation` workflow runs the Go backend tests and builds the
+frontend for pushes and pull requests targeting `nexus`. The backend embeds
+the frontend `dist` directory, so build it before running the full Go test
+suite. Run the same checks locally before pushing when practical:
 
 ```bash
 cd web
@@ -54,11 +53,6 @@ bun install --frozen-lockfile
 cd default
 DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION="$(cat ../../VERSION)" \
   bun run build
-
-cd ..
-bun install --filter ./classic --frozen-lockfile
-cd classic
-VITE_REACT_APP_VERSION="$(cat ../../VERSION)" bun run build
 
 cd ../..
 go test ./...

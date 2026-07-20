@@ -9,5 +9,5 @@ import (
 
 func paymentReturnPath(suffix string) string {
 	base := strings.TrimRight(system_setting.ServerAddress, "/")
-	return base + common.ThemeAwarePath(suffix)
+	return base + common.FrontendPath(suffix)
 }
