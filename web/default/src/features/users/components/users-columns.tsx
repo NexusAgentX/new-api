@@ -166,35 +166,70 @@ export function useUsersColumns(): ColumnDef<User>[] {
       cell: ({ row }) => {
         const user = row.original
         const balance = user.quota
-        const creditQuota = user.credit_quota ?? 0
+        const usedQuota = Math.max(user.used_quota, 0)
+        const creditQuota = Math.max(user.credit_quota ?? 0, 0)
         const availableQuota = user.available_quota ?? balance + creditQuota
+        const walletBalance = Math.max(balance, 0)
+        const walletTotal = usedQuota + walletBalance
+        const walletUsedPercent =
+          walletTotal > 0 ? Math.min((usedQuota / walletTotal) * 100, 100) : 0
+        const usedCredit = Math.min(Math.max(-balance, 0), creditQuota)
+        const creditUsedPercent =
+          creditQuota > 0 ? (usedCredit / creditQuota) * 100 : 0
 
         return (
           <Tooltip>
             <TooltipTrigger
-              render={<div className='w-[180px] cursor-help space-y-1' />}
+              render={<div className='w-[220px] cursor-help space-y-1.5' />}
             >
-              <div className='flex items-center justify-between gap-2 text-xs'>
-                <span className='text-muted-foreground min-w-0 truncate'>
-                  {t('Available to spend')}
-                </span>
-                <span className='shrink-0 font-medium tabular-nums'>
-                  {formatQuota(availableQuota)}
-                </span>
+              <div className='flex items-start justify-between gap-3 text-xs'>
+                <div className='min-w-0'>
+                  <div className='text-muted-foreground truncate'>
+                    {t('Current Balance')}
+                  </div>
+                  <div className='truncate font-medium tabular-nums'>
+                    {formatQuota(balance)}
+                  </div>
+                </div>
+                <div className='min-w-0 text-right'>
+                  <div className='text-muted-foreground truncate'>
+                    {t('Available to spend')}
+                  </div>
+                  <div className='truncate font-medium tabular-nums'>
+                    {formatQuota(availableQuota)}
+                  </div>
+                </div>
               </div>
-              <div className='flex items-center justify-between gap-2 text-xs'>
-                <span className='text-muted-foreground min-w-0 truncate'>
-                  {t('Current Balance')}
-                </span>
-                <span className='shrink-0 tabular-nums'>
-                  {formatQuota(balance)}
-                </span>
+              <div className='bg-muted relative h-2 overflow-hidden rounded-full'>
+                <div
+                  role='progressbar'
+                  aria-label={t('Used Quota')}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(walletUsedPercent)}
+                  className='bg-primary absolute inset-y-0 left-0 rounded-full transition-[width]'
+                  style={{ width: `${walletUsedPercent}%` }}
+                />
+                {usedCredit > 0 && (
+                  <div
+                    role='progressbar'
+                    aria-label={t('Using credit')}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.round(creditUsedPercent)}
+                    className='absolute inset-y-0.5 left-0 rounded-full bg-amber-500 transition-[width]'
+                    style={{ width: `${creditUsedPercent}%` }}
+                  />
+                )}
               </div>
             </TooltipTrigger>
             <TooltipContent>
               <div className='space-y-1 text-xs'>
                 <div>
-                  {t('Total Usage')}: {formatQuota(user.used_quota)}
+                  {t('Total Usage')}: {formatQuota(usedQuota)}
+                </div>
+                <div>
+                  {t('Total Quota')}: {formatQuota(walletTotal)}
                 </div>
                 <div>
                   {t('Current Balance')}: {formatQuota(balance)}
@@ -204,6 +239,9 @@ export function useUsersColumns(): ColumnDef<User>[] {
                   {formatQuota(creditQuota)}
                 </div>
                 <div>
+                  {t('Using credit')}: {formatQuota(usedCredit)}
+                </div>
+                <div>
                   {t('Available to spend')}: {formatQuota(availableQuota)}
                 </div>
               </div>
@@ -211,7 +249,7 @@ export function useUsersColumns(): ColumnDef<User>[] {
           </Tooltip>
         )
       },
-      size: 200,
+      size: 240,
       meta: { mobileOrder: 40 },
     },
     {

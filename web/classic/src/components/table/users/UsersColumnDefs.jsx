@@ -139,42 +139,86 @@ const renderStatistics = (text, record, showEnableDisableModal, t) => {
   );
 };
 
-// Render wallet balance and group credit separately from historical usage.
+// Render self-funded wallet usage with credit usage overlaid when balance is negative.
 const renderQuotaUsage = (text, record, t) => {
   const { Paragraph } = Typography;
-  const used = parseInt(record.used_quota) || 0;
+  const used = Math.max(parseInt(record.used_quota) || 0, 0);
   const balance = parseInt(record.quota) || 0;
-  const creditQuota = parseInt(record.credit_quota) || 0;
+  const creditQuota = Math.max(parseInt(record.credit_quota) || 0, 0);
   const availableQuota =
     record.available_quota === undefined || record.available_quota === null
       ? balance + creditQuota
       : Number(record.available_quota);
+  const walletBalance = Math.max(balance, 0);
+  const walletTotal = used + walletBalance;
+  const walletUsedPercent =
+    walletTotal > 0 ? Math.min((used / walletTotal) * 100, 100) : 0;
+  const usedCredit = Math.min(Math.max(-balance, 0), creditQuota);
+  const creditUsedPercent =
+    creditQuota > 0 ? (usedCredit / creditQuota) * 100 : 0;
   const popoverContent = (
     <div className='text-xs p-2'>
       <Paragraph copyable={{ content: renderQuota(used) }}>
         {t('已用额度')}: {renderQuota(used)}
       </Paragraph>
+      <Paragraph copyable={{ content: renderQuota(walletTotal) }}>
+        {t('总额度')}: {renderQuota(walletTotal)}
+      </Paragraph>
       <Paragraph copyable={{ content: renderQuota(balance) }}>
         {t('当前余额')}: {renderQuota(balance)}
       </Paragraph>
-      <Paragraph copyable={{ content: renderQuota(creditQuota) }}>
-        {t('信用额度')}: {renderQuota(creditQuota)}
+      <Paragraph
+        copyable={{
+          content: `${renderQuota(usedCredit)} / ${renderQuota(creditQuota)}`,
+        }}
+      >
+        {t('信用额度')}: {renderQuota(usedCredit)} / {renderQuota(creditQuota)}
       </Paragraph>
       <Paragraph copyable={{ content: renderQuota(availableQuota) }}>
-        {t('剩余额度')}: {renderQuota(availableQuota)}
+        {t('可用额度')}: {renderQuota(availableQuota)}
       </Paragraph>
     </div>
   );
   return (
     <Popover content={popoverContent} position='top'>
       <Tag color='white' shape='circle'>
-        <div className='flex min-w-[140px] flex-col items-end gap-0.5'>
-          <span className='text-xs leading-none'>
-            {t('剩余额度')}: {renderQuota(availableQuota)}
-          </span>
-          <span className='text-xs leading-none text-gray-500'>
-            {t('当前余额')}: {renderQuota(balance)}
-          </span>
+        <div className='min-w-[220px] space-y-1.5'>
+          <div className='flex items-start justify-between gap-3 text-xs'>
+            <div className='min-w-0'>
+              <div className='truncate text-gray-500'>{t('当前余额')}</div>
+              <div className='truncate font-medium tabular-nums'>
+                {renderQuota(balance)}
+              </div>
+            </div>
+            <div className='min-w-0 text-right'>
+              <div className='truncate text-gray-500'>{t('可用额度')}</div>
+              <div className='truncate font-medium tabular-nums'>
+                {renderQuota(availableQuota)}
+              </div>
+            </div>
+          </div>
+          <div className='relative h-2 overflow-hidden rounded-full bg-gray-200'>
+            <div
+              role='progressbar'
+              aria-label={t('已用额度')}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(walletUsedPercent)}
+              className='absolute inset-y-0 left-0 rounded-full bg-blue-500 transition-all'
+              style={{ width: `${walletUsedPercent}%` }}
+            />
+            {usedCredit > 0 && (
+              <div
+                role='progressbar'
+                aria-label={t('信用额度')}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(creditUsedPercent)}
+                className='absolute inset-y-0.5 left-0 rounded-full bg-amber-500 transition-all'
+                style={{ width: `${creditUsedPercent}%` }}
+              />
+            )}
+          </div>
         </div>
       </Tag>
     </Popover>
@@ -338,7 +382,7 @@ export const getUsersColumns = ({
         renderStatistics(text, record, showEnableDisableModal, t),
     },
     {
-      title: t('剩余额度'),
+      title: t('额度'),
       key: 'quota_usage',
       render: (text, record) => renderQuotaUsage(text, record, t),
     },

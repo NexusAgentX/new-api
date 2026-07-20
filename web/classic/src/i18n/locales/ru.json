@@ -966,6 +966,7 @@
     "可用令牌分组": "Доступные группы токенов",
     "可用分组": "Доступные группы",
     "可用变量：{{provider}} {{field}} {{op}} {{required}} {{current}} 以及 {{current.path}}": "Доступные переменные: {{provider}} {{field}} {{op}} {{required}} {{current}} и {{current.path}}",
+    "可用额度": "Доступно",
     "可用数量": "Available Quantity",
     "可用模型": "Доступные модели",
     "可用空间: {{free}} / 总空间: {{total}}": "Доступное место: {{free}} / Всего: {{total}}",

@@ -946,6 +946,7 @@
     "可用令牌分组": "Nhóm mã thông báo khả dụng",
     "可用分组": "Nhóm khả dụng",
     "可用变量：{{provider}} {{field}} {{op}} {{required}} {{current}} 以及 {{current.path}}": "Biến khả dụng: {{provider}} {{field}} {{op}} {{required}} {{current}} và {{current.path}}",
+    "可用额度": "Số dư khả dụng",
     "可用数量": "Available Quantity",
     "可用模型": "Mô hình khả dụng",
     "可用空间: {{free}} / 总空间: {{total}}": "Dung lượng trống: {{free}} / Tổng: {{total}}",

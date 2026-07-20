@@ -958,6 +958,7 @@
     "可用令牌分组": "Groupes de jetons disponibles",
     "可用分组": "Groupes disponibles",
     "可用变量：{{provider}} {{field}} {{op}} {{required}} {{current}} 以及 {{current.path}}": "Variables disponibles : {{provider}} {{field}} {{op}} {{required}} {{current}} et {{current.path}}",
+    "可用额度": "Montant disponible",
     "可用数量": "Available Quantity",
     "可用模型": "Modèles disponibles",
     "可用空间: {{free}} / 总空间: {{total}}": "Espace disponible : {{free}} / Espace total : {{total}}",

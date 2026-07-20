@@ -945,6 +945,7 @@
     "可用令牌分组": "利用可能なトークングループ",
     "可用分组": "利用可能グループ",
     "可用变量：{{provider}} {{field}} {{op}} {{required}} {{current}} 以及 {{current.path}}": "利用可能な変数：{{provider}} {{field}} {{op}} {{required}} {{current}} および {{current.path}}",
+    "可用额度": "利用可能額",
     "可用数量": "Available Quantity",
     "可用模型": "利用可能なモデル",
     "可用空间: {{free}} / 总空间: {{total}}": "空き容量: {{free}} / 合計容量: {{total}}",
