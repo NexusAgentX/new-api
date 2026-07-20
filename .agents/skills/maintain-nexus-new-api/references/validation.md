@@ -14,27 +14,21 @@ changed:
 go test ./<package>/...
 ```
 
-The root package embeds both frontend `dist` directories. Build them before
-running the backend baseline:
+The root package embeds the frontend `dist` directory. Build it before running
+the backend baseline:
 
 ```bash
 cd web
 bun install --frozen-lockfile
-cd default
-DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION="$(cat ../../VERSION)" \
+DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION="$(cat ../VERSION)" \
   bun run build
 
 cd ..
-bun install --filter ./classic --frozen-lockfile
-cd classic
-VITE_REACT_APP_VERSION="$(cat ../../VERSION)" bun run build
-
-cd ../..
 go test ./...
 ```
 
 For frontend-only changes, the relevant portion of the build above is also the
-focused validation; the fork CI always builds both themes.
+focused validation.
 
 For Dockerfile or workflow changes, validate the YAML shape and inspect the
 planned image tags. Do not push a `nexus-v*` tag merely to test the workflow;
