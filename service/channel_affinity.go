@@ -41,19 +41,23 @@ var (
 )
 
 type channelAffinityMeta struct {
-	CacheKey       string
-	TTLSeconds     int
-	RuleName       string
-	SkipRetry      bool
-	ParamTemplate  map[string]interface{}
-	KeySourceType  string
-	KeySourceKey   string
-	KeySourcePath  string
-	KeyHint        string
-	KeyFingerprint string
-	UsingGroup     string
-	ModelName      string
-	RequestPath    string
+	CacheKey          string
+	TTLSeconds        int
+	RuleName          string
+	AffinityValue     string
+	IncludeUsingGroup bool
+	IncludeModelName  bool
+	IncludeRuleName   bool
+	SkipRetry         bool
+	ParamTemplate     map[string]interface{}
+	KeySourceType     string
+	KeySourceKey      string
+	KeySourcePath     string
+	KeyHint           string
+	KeyFingerprint    string
+	UsingGroup        string
+	ModelName         string
+	RequestPath       string
 }
 
 type ChannelAffinityStatsContext struct {
@@ -355,6 +359,37 @@ func setChannelAffinityContext(c *gin.Context, meta channelAffinityMeta) {
 	c.Set(ginKeyChannelAffinityMeta, meta)
 }
 
+func updateChannelAffinitySelectedGroup(c *gin.Context, selectedGroup string) {
+	if c == nil || selectedGroup == "" {
+		return
+	}
+	meta, ok := getChannelAffinityMeta(c)
+	if !ok || meta.UsingGroup == selectedGroup {
+		return
+	}
+
+	meta.UsingGroup = selectedGroup
+	setting := operation_setting.GetChannelAffinitySetting()
+	if setting != nil && setting.SwitchOnSuccess {
+		rule := operation_setting.ChannelAffinityRule{
+			Name:              meta.RuleName,
+			IncludeUsingGroup: meta.IncludeUsingGroup,
+			IncludeModelName:  meta.IncludeModelName,
+			IncludeRuleName:   meta.IncludeRuleName,
+		}
+		cacheKeySuffix := buildChannelAffinityCacheKeySuffix(rule, meta.ModelName, selectedGroup, meta.AffinityValue)
+		meta.CacheKey = channelAffinityCacheNamespace + ":" + cacheKeySuffix
+	}
+	setChannelAffinityContext(c, meta)
+	if anyInfo, exists := c.Get(ginKeyChannelAffinityLogInfo); exists {
+		if info, ok := anyInfo.(map[string]interface{}); ok {
+			info["using_group"] = selectedGroup
+			info["selected_group"] = selectedGroup
+			c.Set(ginKeyChannelAffinityLogInfo, info)
+		}
+	}
+}
+
 func getChannelAffinityContext(c *gin.Context) (string, int, bool) {
 	keyAny, ok := c.Get(ginKeyChannelAffinityCacheKey)
 	if !ok {
@@ -594,19 +629,23 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup 
 		cacheKeySuffix := buildChannelAffinityCacheKeySuffix(rule, modelName, usingGroup, affinityValue)
 		cacheKeyFull := channelAffinityCacheNamespace + ":" + cacheKeySuffix
 		setChannelAffinityContext(c, channelAffinityMeta{
-			CacheKey:       cacheKeyFull,
-			TTLSeconds:     ttlSeconds,
-			RuleName:       rule.Name,
-			SkipRetry:      rule.SkipRetryOnFailure,
-			ParamTemplate:  cloneStringAnyMap(rule.ParamOverrideTemplate),
-			KeySourceType:  strings.TrimSpace(usedSource.Type),
-			KeySourceKey:   strings.TrimSpace(usedSource.Key),
-			KeySourcePath:  strings.TrimSpace(usedSource.Path),
-			KeyHint:        buildChannelAffinityKeyHint(affinityValue),
-			KeyFingerprint: affinityFingerprint(affinityValue),
-			UsingGroup:     usingGroup,
-			ModelName:      modelName,
-			RequestPath:    path,
+			CacheKey:          cacheKeyFull,
+			TTLSeconds:        ttlSeconds,
+			RuleName:          rule.Name,
+			AffinityValue:     affinityValue,
+			IncludeUsingGroup: rule.IncludeUsingGroup,
+			IncludeModelName:  rule.IncludeModelName,
+			IncludeRuleName:   rule.IncludeRuleName,
+			SkipRetry:         rule.SkipRetryOnFailure,
+			ParamTemplate:     cloneStringAnyMap(rule.ParamOverrideTemplate),
+			KeySourceType:     strings.TrimSpace(usedSource.Type),
+			KeySourceKey:      strings.TrimSpace(usedSource.Key),
+			KeySourcePath:     strings.TrimSpace(usedSource.Path),
+			KeyHint:           buildChannelAffinityKeyHint(affinityValue),
+			KeyFingerprint:    affinityFingerprint(affinityValue),
+			UsingGroup:        usingGroup,
+			ModelName:         modelName,
+			RequestPath:       path,
 		})
 
 		cache := getChannelAffinityCache()
