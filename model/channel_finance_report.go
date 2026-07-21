@@ -2,10 +2,13 @@ package model
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/shopspring/decimal"
 )
@@ -17,15 +20,18 @@ const (
 )
 
 type ChannelFinanceSummary struct {
-	RevenueUSD          float64 `json:"revenue_usd"`
-	VariableCostUSD     float64 `json:"variable_cost_usd"`
-	FixedCostUSD        float64 `json:"fixed_cost_usd"`
-	CostUSD             float64 `json:"cost_usd"`
-	ProfitUSD           float64 `json:"profit_usd"`
-	Margin              float64 `json:"margin"`
-	RequestCount        int64   `json:"request_count"`
-	MissingRevenueCount int64   `json:"missing_revenue_count"`
-	MissingCostCount    int64   `json:"missing_cost_count"`
+	RevenueUSD            float64 `json:"revenue_usd"`
+	VariableCostUSD       float64 `json:"variable_cost_usd"`
+	FixedCostUSD          float64 `json:"fixed_cost_usd"`
+	ChannelCostUSD        float64 `json:"channel_cost_usd"`
+	InfrastructureCostUSD float64 `json:"infrastructure_cost_usd"`
+	CheckinCostUSD        float64 `json:"checkin_cost_usd"`
+	CostUSD               float64 `json:"cost_usd"`
+	ProfitUSD             float64 `json:"profit_usd"`
+	Margin                float64 `json:"margin"`
+	RequestCount          int64   `json:"request_count"`
+	MissingRevenueCount   int64   `json:"missing_revenue_count"`
+	MissingCostCount      int64   `json:"missing_cost_count"`
 }
 
 type ChannelFinancePeriod struct {
@@ -50,12 +56,14 @@ type ChannelFinanceReport struct {
 }
 
 type channelFinanceAccumulator struct {
-	revenueUSD      decimal.Decimal
-	variableCostUSD decimal.Decimal
-	fixedCostUSD    decimal.Decimal
-	requestCount    int64
-	missingRevenue  int64
-	missingCost     int64
+	revenueUSD            decimal.Decimal
+	variableCostUSD       decimal.Decimal
+	fixedCostUSD          decimal.Decimal
+	infrastructureCostUSD decimal.Decimal
+	checkinCostUSD        decimal.Decimal
+	requestCount          int64
+	missingRevenue        int64
+	missingCost           int64
 }
 
 type channelFinanceLogRow struct {
@@ -65,6 +73,11 @@ type channelFinanceLogRow struct {
 	ChannelRevenueUSD *float64 `gorm:"column:channel_revenue_usd"`
 	ChannelCostUSD    *float64 `gorm:"column:channel_cost_usd"`
 	ChannelCostMode   string   `gorm:"column:channel_cost_mode"`
+}
+
+type checkinFinanceRow struct {
+	CreatedAt    int64 `gorm:"column:created_at"`
+	QuotaAwarded int   `gorm:"column:quota_awarded"`
 }
 
 func GetChannelFinanceReport(startTimestamp, endTimestamp int64, granularity string, location *time.Location) (ChannelFinanceReport, error) {
@@ -159,11 +172,36 @@ func GetChannelFinanceReport(startTimestamp, endTimestamp int64, granularity str
 		periodTotal.variableCostUSD = periodTotal.variableCostUSD.Add(value)
 	}
 
+	checkinRows := make([]checkinFinanceRow, 0)
+	if err := DB.Model(&Checkin{}).
+		Select("created_at, quota_awarded").
+		Where("created_at >= ? AND created_at <= ?", startTimestamp, endTimestamp).
+		Find(&checkinRows).Error; err != nil {
+		return ChannelFinanceReport{}, err
+	}
+	if len(checkinRows) > 0 && (common.QuotaPerUnit <= 0 || math.IsNaN(common.QuotaPerUnit) || math.IsInf(common.QuotaPerUnit, 0)) {
+		return ChannelFinanceReport{}, fmt.Errorf("quota per unit must be greater than zero")
+	}
+	for _, row := range checkinRows {
+		if row.QuotaAwarded <= 0 {
+			continue
+		}
+		periodStart := channelFinancePeriodStart(time.Unix(row.CreatedAt, 0).In(location), granularity).Unix()
+		periodTotal := accumulatorForPeriod(periodTotals, periodStart)
+		cost := decimal.NewFromInt(int64(row.QuotaAwarded)).Div(decimal.NewFromFloat(common.QuotaPerUnit))
+		periodTotal.checkinCostUSD = periodTotal.checkinCostUSD.Add(cost)
+	}
+
 	startDay := channelFinanceDayStart(time.Unix(startTimestamp, 0).In(location))
 	endDay := channelFinanceDayStart(time.Unix(endTimestamp, 0).In(location))
+	infrastructureDailyCostUSD := operation_setting.GetFinanceSetting().InfrastructureDailyCostUSD
+	if err := operation_setting.ValidateInfrastructureDailyCostUSD(infrastructureDailyCostUSD); err != nil {
+		return ChannelFinanceReport{}, err
+	}
 	for day := startDay; !day.After(endDay); day = day.AddDate(0, 0, 1) {
 		periodStart := channelFinancePeriodStart(day, granularity).Unix()
 		periodTotal := accumulatorForPeriod(periodTotals, periodStart)
+		periodTotal.infrastructureCostUSD = periodTotal.infrastructureCostUSD.Add(decimal.NewFromFloat(infrastructureDailyCostUSD))
 		for index := range channels {
 			channel := &channels[index]
 			if channel.CostMode != constant.ChannelCostModeFixedDaily {
@@ -281,27 +319,33 @@ func (accumulator *channelFinanceAccumulator) add(other *channelFinanceAccumulat
 	accumulator.revenueUSD = accumulator.revenueUSD.Add(other.revenueUSD)
 	accumulator.variableCostUSD = accumulator.variableCostUSD.Add(other.variableCostUSD)
 	accumulator.fixedCostUSD = accumulator.fixedCostUSD.Add(other.fixedCostUSD)
+	accumulator.infrastructureCostUSD = accumulator.infrastructureCostUSD.Add(other.infrastructureCostUSD)
+	accumulator.checkinCostUSD = accumulator.checkinCostUSD.Add(other.checkinCostUSD)
 	accumulator.requestCount += other.requestCount
 	accumulator.missingRevenue += other.missingRevenue
 	accumulator.missingCost += other.missingCost
 }
 
 func (accumulator *channelFinanceAccumulator) summary() ChannelFinanceSummary {
-	cost := accumulator.variableCostUSD.Add(accumulator.fixedCostUSD)
+	channelCost := accumulator.variableCostUSD.Add(accumulator.fixedCostUSD)
+	cost := channelCost.Add(accumulator.infrastructureCostUSD).Add(accumulator.checkinCostUSD)
 	profit := accumulator.revenueUSD.Sub(cost)
 	margin := decimal.Zero
 	if !accumulator.revenueUSD.IsZero() {
 		margin = profit.Div(accumulator.revenueUSD)
 	}
 	return ChannelFinanceSummary{
-		RevenueUSD:          accumulator.revenueUSD.InexactFloat64(),
-		VariableCostUSD:     accumulator.variableCostUSD.InexactFloat64(),
-		FixedCostUSD:        accumulator.fixedCostUSD.InexactFloat64(),
-		CostUSD:             cost.InexactFloat64(),
-		ProfitUSD:           profit.InexactFloat64(),
-		Margin:              margin.InexactFloat64(),
-		RequestCount:        accumulator.requestCount,
-		MissingRevenueCount: accumulator.missingRevenue,
-		MissingCostCount:    accumulator.missingCost,
+		RevenueUSD:            accumulator.revenueUSD.InexactFloat64(),
+		VariableCostUSD:       accumulator.variableCostUSD.InexactFloat64(),
+		FixedCostUSD:          accumulator.fixedCostUSD.InexactFloat64(),
+		ChannelCostUSD:        channelCost.InexactFloat64(),
+		InfrastructureCostUSD: accumulator.infrastructureCostUSD.InexactFloat64(),
+		CheckinCostUSD:        accumulator.checkinCostUSD.InexactFloat64(),
+		CostUSD:               cost.InexactFloat64(),
+		ProfitUSD:             profit.InexactFloat64(),
+		Margin:                margin.InexactFloat64(),
+		RequestCount:          accumulator.requestCount,
+		MissingRevenueCount:   accumulator.missingRevenue,
+		MissingCostCount:      accumulator.missingCost,
 	}
 }

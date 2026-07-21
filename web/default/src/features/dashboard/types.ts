@@ -216,6 +216,9 @@ export interface ChannelFinanceSummary {
   revenue_usd: number
   variable_cost_usd: number
   fixed_cost_usd: number
+  channel_cost_usd: number
+  infrastructure_cost_usd: number
+  checkin_cost_usd: number
   cost_usd: number
   profit_usd: number
   margin: number
