@@ -487,6 +487,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
   const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false })
   const details = props.log.content ?? ''
   const other = parseLogOther(props.log.other)
+  const requestModelMapping = other?.request_customization?.model_mapping
   const typeConfig = getLogTypeConfig(props.log.type)
 
   const isViolation = isViolationFeeLog(other)
@@ -1050,18 +1051,50 @@ export function DetailsDialog(props: DetailsDialogProps) {
         )}
 
         {/* Model mapping */}
-        {other?.is_model_mapped && other?.upstream_model_name && (
+        {(other?.request_customization?.configured ||
+          requestModelMapping?.applied ||
+          (other?.is_model_mapped && other?.upstream_model_name)) && (
           <DetailSection label={t('Model Mapping')}>
+            {other?.request_customization?.configured && (
+              <DetailRow
+                label={t('Applied')}
+                value={
+                  <StatusBadge
+                    label={
+                      requestModelMapping?.applied
+                        ? t('Applied')
+                        : t('Not Applied')
+                    }
+                    variant={
+                      requestModelMapping?.applied ? 'success' : 'neutral'
+                    }
+                    size='sm'
+                    copyable={false}
+                  />
+                }
+              />
+            )}
+            {requestModelMapping?.original_model && (
+              <DetailRow
+                label={t('Client Model')}
+                value={requestModelMapping.original_model}
+                mono
+              />
+            )}
             <DetailRow
-              label={t('Request Model')}
-              value={props.log.model_name}
+              label={t('Gateway Model')}
+              value={
+                requestModelMapping?.effective_model || props.log.model_name
+              }
               mono
             />
-            <DetailRow
-              label={t('Actual Model')}
-              value={other.upstream_model_name}
-              mono
-            />
+            {other?.is_model_mapped && other?.upstream_model_name && (
+              <DetailRow
+                label={t('Upstream Model')}
+                value={other.upstream_model_name}
+                mono
+              />
+            )}
           </DetailSection>
         )}
 

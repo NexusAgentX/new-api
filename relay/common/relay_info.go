@@ -126,6 +126,11 @@ type RelayInfo struct {
 	SendResponseCount      int
 	ReceivedResponseCount  int
 	FinalPreConsumedQuota  int // 最终预消耗的配额
+
+	GatewayModelName               string
+	RequestModelName               string
+	RequestCustomizationConfigured bool
+	RequestModelMapped             bool
 	// ForcePreConsume 为 true 时禁用 BillingSession 的信任额度旁路，
 	// 强制预扣全额。用于异步任务（视频/音乐生成等），因为请求返回后任务仍在运行，
 	// 必须在提交前锁定全额。
@@ -282,6 +287,9 @@ func (info *RelayInfo) ToString() string {
 	fmt.Fprintf(b, "IsPlayground: %t, ", info.IsPlayground)
 	fmt.Fprintf(b, "RequestURLPath: %q, ", info.RequestURLPath)
 	fmt.Fprintf(b, "OriginModelName: %q, ", info.OriginModelName)
+	if info.RequestCustomizationConfigured {
+		fmt.Fprintf(b, "RequestModelName: %q, GatewayModelName: %q, RequestModelMapped: %t, ", info.RequestModelName, info.GatewayModelName, info.RequestModelMapped)
+	}
 	fmt.Fprintf(b, "EstimatePromptTokens: %d, ", info.estimatePromptTokens)
 	fmt.Fprintf(b, "ShouldIncludeUsage: %t, ", info.ShouldIncludeUsage)
 	fmt.Fprintf(b, "DisablePing: %t, ", info.DisablePing)
@@ -488,6 +496,7 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 	if reqId == "" {
 		reqId = common.NewRequestId()
 	}
+	_, requestCustomizationConfigured := common.GetContextKeyType[map[string]string](c, constant.ContextKeyTokenModelMapping)
 	info := &RelayInfo{
 		Request: request,
 
@@ -498,7 +507,11 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 		UserQuota:  common.GetContextKeyInt(c, constant.ContextKeyUserQuota),
 		UserEmail:  common.GetContextKeyString(c, constant.ContextKeyUserEmail),
 
-		OriginModelName: common.GetContextKeyString(c, constant.ContextKeyOriginalModel),
+		OriginModelName:                common.GetContextKeyString(c, constant.ContextKeyOriginalModel),
+		GatewayModelName:               common.GetContextKeyString(c, constant.ContextKeyOriginalModel),
+		RequestModelName:               common.GetContextKeyString(c, constant.ContextKeyRequestModel),
+		RequestCustomizationConfigured: requestCustomizationConfigured,
+		RequestModelMapped:             common.GetContextKeyBool(c, constant.ContextKeyRequestModelMapped),
 
 		TokenId:        common.GetContextKeyInt(c, constant.ContextKeyTokenId),
 		TokenKey:       common.GetContextKeyString(c, constant.ContextKeyTokenKey),
