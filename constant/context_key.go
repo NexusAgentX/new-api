@@ -28,6 +28,12 @@ const (
 	ContextKeyTokenCrossGroupRetry   ContextKey = "token_cross_group_retry"
 	ContextKeyTokenAutoGroups        ContextKey = "token_auto_groups"
 
+	ContextKeyTokenModelMapping        ContextKey = "token_model_mapping"
+	ContextKeyRequestCustomizationDone ContextKey = "request_customization_done"
+	ContextKeyRequestEffectiveModel    ContextKey = "request_effective_model"
+	ContextKeyRequestModel             ContextKey = "request_model"
+	ContextKeyRequestModelMapped       ContextKey = "request_model_mapped"
+
 	/* channel related keys */
 	ContextKeyChannelId                ContextKey = "channel_id"
 	ContextKeyChannelName              ContextKey = "channel_name"

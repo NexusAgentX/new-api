@@ -62,6 +62,7 @@ import {
 } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { ModelMappingEditor } from '@/features/channels/components/model-mapping-editor'
 import { useStatus } from '@/hooks/use-status'
 import { getUserModels, getUserGroups } from '@/lib/api'
 import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
@@ -678,7 +679,9 @@ export function ApiKeysMutateDrawer({
                   <SideDrawerSectionHeader
                     className='flex-1'
                     title={t('Advanced Settings')}
-                    description={t('Set API key access restrictions')}
+                    description={t(
+                      'Set API key access restrictions and request customization'
+                    )}
                     icon={<Settings2 className='size-4' />}
                   />
                   <ChevronDown
@@ -711,6 +714,29 @@ export function ApiKeysMutateDrawer({
                           </FormControl>
                           <FormDescription>
                             {t('Limit which models can be used with this key')}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='model_mapping'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Model Mapping')}</FormLabel>
+                          <FormControl>
+                            <ModelMappingEditor
+                              value={field.value}
+                              onChange={field.onChange}
+                              targetModelOptions={models}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'Map client model names to gateway models for this API key'
+                            )}
                           </FormDescription>
                           <FormMessage />
                         </FormItem>

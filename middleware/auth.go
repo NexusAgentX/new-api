@@ -486,6 +486,11 @@ func SetupContextForToken(c *gin.Context, token *model.Token, parts ...string) e
 	if token == nil {
 		return fmt.Errorf("token is nil")
 	}
+	requestCustomization, err := model.ParseTokenRequestCustomization(token.RequestCustomization)
+	if err != nil {
+		abortWithOpenAiMessage(c, http.StatusInternalServerError, common.TranslateMessage(c, i18n.MsgTokenRequestCustomizationInvalid, map[string]any{"Error": err.Error()}))
+		return err
+	}
 	c.Set("id", token.UserId)
 	c.Set("token_id", token.Id)
 	c.Set("token_key", token.Key)
@@ -511,6 +516,9 @@ func SetupContextForToken(c *gin.Context, token *model.Token, parts ...string) e
 		} else if len(autoGroups) > 0 {
 			common.SetContextKey(c, constant.ContextKeyTokenAutoGroups, autoGroups)
 		}
+	}
+	if len(requestCustomization.ModelMapping) > 0 {
+		common.SetContextKey(c, constant.ContextKeyTokenModelMapping, requestCustomization.ModelMapping)
 	}
 	if len(parts) > 1 {
 		if model.IsAdmin(token.UserId) {

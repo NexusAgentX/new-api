@@ -79,9 +79,11 @@ func (t *Task) GetData(v any) error {
 }
 
 type Properties struct {
-	Input             string `json:"input"`
-	UpstreamModelName string `json:"upstream_model_name,omitempty"`
-	OriginModelName   string `json:"origin_model_name,omitempty"`
+	Input                          string `json:"input"`
+	RequestCustomizationConfigured bool   `json:"request_customization_configured,omitempty"`
+	RequestModelName               string `json:"request_model_name,omitempty"`
+	UpstreamModelName              string `json:"upstream_model_name,omitempty"`
+	OriginModelName                string `json:"origin_model_name,omitempty"`
 }
 
 func (m *Properties) Scan(val interface{}) error {
@@ -192,6 +194,10 @@ func InitTask(platform constant.TaskPlatform, relayInfo *commonRelay.RelayInfo) 
 		}
 		if relayInfo.OriginModelName != "" {
 			properties.OriginModelName = relayInfo.OriginModelName
+		}
+		if relayInfo.RequestCustomizationConfigured {
+			properties.RequestCustomizationConfigured = true
+			properties.RequestModelName = relayInfo.RequestModelName
 		}
 	}
 

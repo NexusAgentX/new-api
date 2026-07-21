@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -253,13 +254,44 @@ func ListModels(c *gin.Context, modelType int) {
 		userModelNames = append(userModelNames, modelName)
 	}
 
+	aliasTargets := map[string]string{}
+	if modelMapping, ok := common.GetContextKeyType[map[string]string](c, constant.ContextKeyTokenModelMapping); ok {
+		availableModels := make(map[string]bool, len(userModelNames))
+		for _, modelName := range userModelNames {
+			availableModels[modelName] = true
+		}
+		aliases := make([]string, 0, len(modelMapping))
+		for alias := range modelMapping {
+			aliases = append(aliases, alias)
+		}
+		sort.Strings(aliases)
+		for _, alias := range aliases {
+			target, mapped, resolveErr := model.ResolveTokenModelMapping(modelMapping, alias)
+			if resolveErr != nil || !mapped || !availableModels[target] {
+				continue
+			}
+			if !availableModels[alias] {
+				userModelNames = append(userModelNames, alias)
+				availableModels[alias] = true
+			}
+			aliasTargets[alias] = target
+		}
+	}
+
 	ownerByModel := map[string]string{}
 	if len(ownerGroups) > 0 {
 		ownerByModel = getPreferredModelOwners(userModelNames, ownerGroups)
 	}
+	for alias, target := range aliasTargets {
+		ownerByModel[alias] = ownerByModel[target]
+	}
 	userOpenAiModels := make([]dto.OpenAIModels, 0, len(userModelNames))
 	for _, modelName := range userModelNames {
-		userOpenAiModels = append(userOpenAiModels, buildOpenAIModel(modelName, ownerByModel))
+		openAIModel := buildOpenAIModel(modelName, ownerByModel)
+		if target, ok := aliasTargets[modelName]; ok {
+			openAIModel.SupportedEndpointTypes = model.GetModelSupportEndpointTypes(target)
+		}
+		userOpenAiModels = append(userOpenAiModels, openAIModel)
 	}
 
 	switch modelType {

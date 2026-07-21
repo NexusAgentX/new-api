@@ -69,6 +69,55 @@ func appendRequestPath(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, other
 	}
 }
 
+func appendRequestCustomizationModels(other map[string]interface{}, configured bool, applied bool, requestModel string, effectiveModel string) {
+	if other == nil || !configured {
+		return
+	}
+	modelMapping := map[string]interface{}{
+		"applied": applied,
+	}
+	if requestModel != "" {
+		modelMapping["original_model"] = requestModel
+	}
+	if effectiveModel != "" {
+		modelMapping["effective_model"] = effectiveModel
+	}
+	other["request_customization"] = map[string]interface{}{
+		"configured":    true,
+		"model_mapping": modelMapping,
+	}
+}
+
+// AppendRequestCustomizationInfo records the token-level model mapping without
+// conflating it with the selected channel's upstream model mapping.
+func AppendRequestCustomizationInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, other map[string]interface{}) {
+	if relayInfo != nil && relayInfo.RequestCustomizationConfigured {
+		effectiveModel := relayInfo.GatewayModelName
+		if effectiveModel == "" {
+			effectiveModel = relayInfo.OriginModelName
+		}
+		appendRequestCustomizationModels(
+			other,
+			true,
+			relayInfo.RequestModelMapped,
+			relayInfo.RequestModelName,
+			effectiveModel,
+		)
+		return
+	}
+	if ctx == nil {
+		return
+	}
+	_, configured := common.GetContextKeyType[map[string]string](ctx, constant.ContextKeyTokenModelMapping)
+	appendRequestCustomizationModels(
+		other,
+		configured,
+		common.GetContextKeyBool(ctx, constant.ContextKeyRequestModelMapped),
+		common.GetContextKeyString(ctx, constant.ContextKeyRequestModel),
+		common.GetContextKeyString(ctx, constant.ContextKeyOriginalModel),
+	)
+}
+
 func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, modelRatio, groupRatio, completionRatio float64,
 	cacheTokens int, cacheRatio float64, modelPrice float64, userGroupRatio float64) map[string]interface{} {
 	other := make(map[string]interface{})
@@ -110,6 +159,7 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 
 	other["admin_info"] = adminInfo
 	appendRequestPath(ctx, relayInfo, other)
+	AppendRequestCustomizationInfo(ctx, relayInfo, other)
 	appendRequestConversionChain(relayInfo, other)
 	appendFinalRequestFormat(relayInfo, other)
 	appendBillingInfo(relayInfo, other)
@@ -298,6 +348,7 @@ func GenerateMjOtherInfo(relayInfo *relaycommon.RelayInfo, priceData hosttypes.P
 		other["user_group_ratio"] = priceData.GroupRatioInfo.GroupSpecialRatio
 	}
 	appendRequestPath(nil, relayInfo, other)
+	AppendRequestCustomizationInfo(nil, relayInfo, other)
 	return other
 }
 

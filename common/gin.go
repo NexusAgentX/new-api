@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -97,6 +98,29 @@ func GetBodyStorage(c *gin.Context) (BodyStorage, error) {
 		return nil, errors.New("unexpected body storage type")
 	}
 	return bs, nil
+}
+
+// ReplaceBodyStorage swaps a buffered request body while preserving the
+// reusable storage contract used by relay retries and passthrough requests.
+func ReplaceBodyStorage(c *gin.Context, data []byte) error {
+	storage, err := CreateBodyStorage(data)
+	if err != nil {
+		return err
+	}
+	if previous, exists := c.Get(KeyBodyStorage); exists && previous != nil {
+		if previousStorage, ok := previous.(BodyStorage); ok {
+			_ = previousStorage.Close()
+		}
+	}
+	c.Set(KeyBodyStorage, storage)
+	c.Set(KeyRequestBody, nil)
+	c.Request.Body = io.NopCloser(storage)
+	c.Request.ContentLength = int64(len(data))
+	c.Request.Header.Set("Content-Length", strconv.Itoa(len(data)))
+	c.Request.Form = nil
+	c.Request.PostForm = nil
+	c.Request.MultipartForm = nil
+	return nil
 }
 
 // CleanupBodyStorage 清理请求体存储（应在请求结束时调用）

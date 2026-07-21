@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import type { TFunction } from 'i18next'
 import { z } from 'zod'
 
+import { validateModelMappingJson } from '@/features/channels/lib/model-mapping-validation'
 import { parseQuotaFromDollars, quotaUnitsToDollars } from '@/lib/format'
 
 import { DEFAULT_GROUP } from '../constants'
@@ -39,6 +40,7 @@ export function getApiKeyFormSchema(t: TFunction, maxAutoGroups = 5) {
       expired_time: z.date().optional(),
       unlimited_quota: z.boolean(),
       model_limits: z.array(z.string()),
+      model_mapping: z.string(),
       allow_ips: z.string().optional(),
       group: z.string().optional(),
       auto_groups_mode: z.enum(['inherit', 'custom']),
@@ -80,6 +82,27 @@ export function getApiKeyFormSchema(t: TFunction, maxAutoGroups = 5) {
         }
       }
 
+      const mappingValidation = validateModelMappingJson(data.model_mapping)
+      if (!mappingValidation.valid) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['model_mapping'],
+          message: t('Invalid model mapping format'),
+        })
+      } else if (data.model_mapping.trim()) {
+        const mapping = JSON.parse(data.model_mapping) as Record<string, string>
+        const hasEmptyModel = Object.entries(mapping).some(
+          ([source, target]) => !source.trim() || !target.trim()
+        )
+        if (hasEmptyModel) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['model_mapping'],
+            message: t('Invalid model mapping format'),
+          })
+        }
+      }
+
       if (data.unlimited_quota) {
         return
       }
@@ -109,6 +132,7 @@ export const API_KEY_FORM_DEFAULT_VALUES: ApiKeyFormValues = {
   expired_time: undefined,
   unlimited_quota: true,
   model_limits: [],
+  model_mapping: '',
   allow_ips: '',
   group: DEFAULT_GROUP,
   auto_groups_mode: 'inherit',
@@ -150,6 +174,12 @@ export function transformFormDataToPayload(
     unlimited_quota: data.unlimited_quota,
     model_limits_enabled: data.model_limits.length > 0,
     model_limits: data.model_limits.join(','),
+    request_customization: data.model_mapping.trim()
+      ? JSON.stringify({
+          version: 1,
+          model_mapping: JSON.parse(data.model_mapping),
+        })
+      : '',
     allow_ips: data.allow_ips || '',
     group: data.group || '',
     auto_groups:
@@ -157,6 +187,32 @@ export function transformFormDataToPayload(
         ? data.auto_groups
         : [],
     cross_group_retry: data.group === 'auto' ? !!data.cross_group_retry : false,
+  }
+}
+
+function extractTokenModelMapping(
+  requestCustomization: string | null | undefined
+): string {
+  if (!requestCustomization?.trim()) {
+    return ''
+  }
+
+  try {
+    const config = JSON.parse(requestCustomization) as {
+      version?: unknown
+      model_mapping?: unknown
+    }
+    if (
+      config.version !== 1 ||
+      !config.model_mapping ||
+      typeof config.model_mapping !== 'object' ||
+      Array.isArray(config.model_mapping)
+    ) {
+      return ''
+    }
+    return JSON.stringify(config.model_mapping, null, 2)
+  } catch {
+    return ''
   }
 }
 
@@ -188,6 +244,7 @@ export function transformApiKeyToFormDefaults(
     model_limits: apiKey.model_limits
       ? apiKey.model_limits.split(',').filter(Boolean)
       : [],
+    model_mapping: extractTokenModelMapping(apiKey.request_customization),
     allow_ips: apiKey.allow_ips || '',
     group: apiKey.group || DEFAULT_GROUP,
     auto_groups_mode: autoGroupsMode,

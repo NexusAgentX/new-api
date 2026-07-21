@@ -269,6 +269,11 @@ func AddToken(c *gin.Context) {
 		return
 	}
 	token := request.Token
+	token.RequestCustomization, err = model.NormalizeTokenRequestCustomization(token.RequestCustomization)
+	if err != nil {
+		common.ApiErrorI18n(c, i18n.MsgTokenRequestCustomizationInvalid, map[string]any{"Error": err.Error()})
+		return
+	}
 	if len(token.Name) > 50 {
 		common.ApiErrorI18n(c, i18n.MsgTokenNameTooLong)
 		return
@@ -314,20 +319,21 @@ func AddToken(c *gin.Context) {
 		return
 	}
 	cleanToken := model.Token{
-		UserId:             c.GetInt("id"),
-		Name:               token.Name,
-		Key:                key,
-		CreatedTime:        common.GetTimestamp(),
-		AccessedTime:       common.GetTimestamp(),
-		ExpiredTime:        token.ExpiredTime,
-		RemainQuota:        token.RemainQuota,
-		UnlimitedQuota:     token.UnlimitedQuota,
-		ModelLimitsEnabled: token.ModelLimitsEnabled,
-		ModelLimits:        token.ModelLimits,
-		AllowIps:           token.AllowIps,
-		Group:              token.Group,
-		CrossGroupRetry:    token.CrossGroupRetry,
-		AutoGroups:         token.AutoGroups,
+		UserId:               c.GetInt("id"),
+		Name:                 token.Name,
+		Key:                  key,
+		CreatedTime:          common.GetTimestamp(),
+		AccessedTime:         common.GetTimestamp(),
+		ExpiredTime:          token.ExpiredTime,
+		RemainQuota:          token.RemainQuota,
+		UnlimitedQuota:       token.UnlimitedQuota,
+		ModelLimitsEnabled:   token.ModelLimitsEnabled,
+		ModelLimits:          token.ModelLimits,
+		AllowIps:             token.AllowIps,
+		Group:                token.Group,
+		CrossGroupRetry:      token.CrossGroupRetry,
+		AutoGroups:           token.AutoGroups,
+		RequestCustomization: token.RequestCustomization,
 	}
 	err = cleanToken.Insert()
 	if err != nil {
@@ -364,6 +370,13 @@ func UpdateToken(c *gin.Context) {
 		return
 	}
 	token := request.Token
+	if statusOnly == "" {
+		token.RequestCustomization, err = model.NormalizeTokenRequestCustomization(token.RequestCustomization)
+		if err != nil {
+			common.ApiErrorI18n(c, i18n.MsgTokenRequestCustomizationInvalid, map[string]any{"Error": err.Error()})
+			return
+		}
+	}
 	if len(token.Name) > 50 {
 		common.ApiErrorI18n(c, i18n.MsgTokenNameTooLong)
 		return
@@ -415,6 +428,7 @@ func UpdateToken(c *gin.Context) {
 				return
 			}
 		}
+		cleanToken.RequestCustomization = token.RequestCustomization
 	}
 	err = cleanToken.Update()
 	if err != nil {
