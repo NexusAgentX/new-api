@@ -186,39 +186,49 @@ func zhipuStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 		stopChan <- true
 	}()
 	helper.SetEventStreamHeaders(c)
-	c.Stream(func(w io.Writer) bool {
+	for {
 		select {
 		case data := <-dataChan:
+			info.SetFirstResponseTime()
 			response := streamResponseZhipu2OpenAI(data)
 			jsonResponse, err := json.Marshal(response)
 			if err != nil {
 				common.SysLog("error marshalling stream response: " + err.Error())
-				return true
+				continue
 			}
 			c.Render(-1, common.CustomEvent{Data: "data: " + string(jsonResponse)})
-			return true
+			_ = helper.FlushWriter(c)
 		case data := <-metaChan:
+			info.SetFirstResponseTime()
 			var zhipuResponse ZhipuStreamMetaResponse
 			err := json.Unmarshal([]byte(data), &zhipuResponse)
 			if err != nil {
 				common.SysLog("error unmarshalling stream response: " + err.Error())
-				return true
+				continue
 			}
 			response, zhipuUsage := streamMetaResponseZhipu2OpenAI(&zhipuResponse)
 			jsonResponse, err := json.Marshal(response)
 			if err != nil {
 				common.SysLog("error marshalling stream response: " + err.Error())
-				return true
+				continue
 			}
 			usage = zhipuUsage
 			c.Render(-1, common.CustomEvent{Data: "data: " + string(jsonResponse)})
-			return true
+			_ = helper.FlushWriter(c)
 		case <-stopChan:
-			c.Render(-1, common.CustomEvent{Data: "data: [DONE]"})
-			return false
+			if !info.IsFirstResponseAttemptTimedOut() {
+				c.Render(-1, common.CustomEvent{Data: "data: [DONE]"})
+				_ = helper.FlushWriter(c)
+			}
+			goto streamEnded
 		}
-	})
+	}
+
+streamEnded:
 	service.CloseResponseBodyGracefully(resp)
+	if timeoutErr := info.FirstResponseTimeoutError(); timeoutErr != nil {
+		return nil, timeoutErr
+	}
 	return usage, nil
 }
 

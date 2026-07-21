@@ -80,6 +80,21 @@ func clearChannelFinanceInfo(c *gin.Context, channel *model.Channel) {
 	channel.UsageCostRatio = 0
 }
 
+func attachFirstResponseTimeoutStats(channels []*model.Channel) {
+	channelIDs := make([]int, 0, len(channels))
+	for _, channel := range channels {
+		if channel != nil {
+			channelIDs = append(channelIDs, channel.Id)
+		}
+	}
+	statsByChannel := service.GetFirstResponseTimeoutStats(channelIDs)
+	for _, channel := range channels {
+		if channel != nil {
+			channel.FirstResponseTimeoutStats = statsByChannel[channel.Id]
+		}
+	}
+}
+
 func applyChannelStatusFilter(query *gorm.DB, statusFilter int) *gorm.DB {
 	if statusFilter == common.ChannelStatusEnabled {
 		return query.Where("status = ?", common.ChannelStatusEnabled)
@@ -178,6 +193,7 @@ func GetAllChannels(c *gin.Context) {
 		clearChannelInfo(datum)
 		clearChannelFinanceInfo(c, datum)
 	}
+	attachFirstResponseTimeoutStats(channelData)
 
 	countQuery := buildChannelListQuery(groupFilter, statusFilter, -1)
 	var results []struct {
@@ -385,6 +401,7 @@ func SearchChannels(c *gin.Context) {
 		clearChannelInfo(datum)
 		clearChannelFinanceInfo(c, datum)
 	}
+	attachFirstResponseTimeoutStats(pagedData)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

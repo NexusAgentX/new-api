@@ -72,6 +72,11 @@ const defaultModelSettings: ModelSettings = {
   AutomaticDisableStatusCodes: '401',
   AutomaticRetryStatusCodes:
     '100-199,300-399,401-407,409-499,500-503,505-523,525-599',
+  'first_response_timeout_setting.retry_enabled': false,
+  'first_response_timeout_setting.timeout_seconds': 20,
+  'first_response_timeout_setting.disable_enabled': false,
+  'first_response_timeout_setting.disable_window_minutes': 5,
+  'first_response_timeout_setting.disable_rate': 30,
   'monitor_setting.auto_test_channel_enabled': false,
   'monitor_setting.auto_test_channel_minutes': 10,
   'monitor_setting.channel_test_mode': 'scheduled_all',

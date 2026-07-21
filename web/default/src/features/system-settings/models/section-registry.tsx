@@ -79,6 +79,16 @@ const MODELS_SECTIONS = [
           AutomaticDisableKeywords: settings.AutomaticDisableKeywords,
           AutomaticDisableStatusCodes: settings.AutomaticDisableStatusCodes,
           AutomaticRetryStatusCodes: settings.AutomaticRetryStatusCodes,
+          'first_response_timeout_setting.retry_enabled':
+            settings['first_response_timeout_setting.retry_enabled'],
+          'first_response_timeout_setting.timeout_seconds':
+            settings['first_response_timeout_setting.timeout_seconds'],
+          'first_response_timeout_setting.disable_enabled':
+            settings['first_response_timeout_setting.disable_enabled'],
+          'first_response_timeout_setting.disable_window_minutes':
+            settings['first_response_timeout_setting.disable_window_minutes'],
+          'first_response_timeout_setting.disable_rate':
+            settings['first_response_timeout_setting.disable_rate'],
           'monitor_setting.auto_test_channel_enabled':
             settings['monitor_setting.auto_test_channel_enabled'],
           'monitor_setting.auto_test_channel_minutes':

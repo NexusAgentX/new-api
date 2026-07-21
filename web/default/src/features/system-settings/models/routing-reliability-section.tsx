@@ -75,6 +75,13 @@ const routingReliabilitySchema = z
     AutomaticDisableKeywords: z.string(),
     AutomaticDisableStatusCodes: z.string(),
     AutomaticRetryStatusCodes: z.string(),
+    first_response_timeout_setting: z.object({
+      retry_enabled: z.boolean(),
+      timeout_seconds: z.coerce.number().int().min(1).max(300),
+      disable_enabled: z.boolean(),
+      disable_window_minutes: z.coerce.number().int().min(1).max(60),
+      disable_rate: z.coerce.number().gt(0).max(100),
+    }),
     monitor_setting: z.object({
       auto_test_channel_enabled: z.boolean(),
       auto_test_channel_minutes: z.coerce
@@ -124,6 +131,11 @@ type RoutingReliabilitySectionProps = {
     AutomaticDisableKeywords: string
     AutomaticDisableStatusCodes: string
     AutomaticRetryStatusCodes: string
+    'first_response_timeout_setting.retry_enabled': boolean
+    'first_response_timeout_setting.timeout_seconds': number
+    'first_response_timeout_setting.disable_enabled': boolean
+    'first_response_timeout_setting.disable_window_minutes': number
+    'first_response_timeout_setting.disable_rate': number
     'monitor_setting.auto_test_channel_enabled': boolean
     'monitor_setting.auto_test_channel_minutes': number
     'monitor_setting.channel_test_mode': ChannelTestMode
@@ -142,6 +154,11 @@ type NormalizedRoutingReliabilityValues = {
   AutomaticDisableKeywords: string
   AutomaticDisableStatusCodes: string
   AutomaticRetryStatusCodes: string
+  'first_response_timeout_setting.retry_enabled': boolean
+  'first_response_timeout_setting.timeout_seconds': number
+  'first_response_timeout_setting.disable_enabled': boolean
+  'first_response_timeout_setting.disable_window_minutes': number
+  'first_response_timeout_setting.disable_rate': number
   'monitor_setting.auto_test_channel_enabled': boolean
   'monitor_setting.auto_test_channel_minutes': number
   'monitor_setting.channel_test_mode': ChannelTestMode
@@ -163,6 +180,17 @@ const buildFormDefaults = (
   ),
   AutomaticDisableStatusCodes: defaults.AutomaticDisableStatusCodes ?? '',
   AutomaticRetryStatusCodes: defaults.AutomaticRetryStatusCodes ?? '',
+  first_response_timeout_setting: {
+    retry_enabled:
+      defaults['first_response_timeout_setting.retry_enabled'] ?? false,
+    timeout_seconds:
+      defaults['first_response_timeout_setting.timeout_seconds'] ?? 20,
+    disable_enabled:
+      defaults['first_response_timeout_setting.disable_enabled'] ?? false,
+    disable_window_minutes:
+      defaults['first_response_timeout_setting.disable_window_minutes'] ?? 5,
+    disable_rate: defaults['first_response_timeout_setting.disable_rate'] ?? 30,
+  },
   monitor_setting: {
     auto_test_channel_enabled:
       defaults['monitor_setting.auto_test_channel_enabled'],
@@ -190,6 +218,16 @@ const normalizeDefaults = (
   AutomaticRetryStatusCodes: parseHttpStatusCodeRules(
     defaults.AutomaticRetryStatusCodes ?? ''
   ).normalized,
+  'first_response_timeout_setting.retry_enabled':
+    defaults['first_response_timeout_setting.retry_enabled'] ?? false,
+  'first_response_timeout_setting.timeout_seconds':
+    defaults['first_response_timeout_setting.timeout_seconds'] ?? 20,
+  'first_response_timeout_setting.disable_enabled':
+    defaults['first_response_timeout_setting.disable_enabled'] ?? false,
+  'first_response_timeout_setting.disable_window_minutes':
+    defaults['first_response_timeout_setting.disable_window_minutes'] ?? 5,
+  'first_response_timeout_setting.disable_rate':
+    defaults['first_response_timeout_setting.disable_rate'] ?? 30,
   'monitor_setting.auto_test_channel_enabled':
     defaults['monitor_setting.auto_test_channel_enabled'],
   'monitor_setting.auto_test_channel_minutes':
@@ -215,6 +253,16 @@ const normalizeFormValues = (
   AutomaticRetryStatusCodes: parseHttpStatusCodeRules(
     values.AutomaticRetryStatusCodes
   ).normalized,
+  'first_response_timeout_setting.retry_enabled':
+    values.first_response_timeout_setting.retry_enabled,
+  'first_response_timeout_setting.timeout_seconds':
+    values.first_response_timeout_setting.timeout_seconds,
+  'first_response_timeout_setting.disable_enabled':
+    values.first_response_timeout_setting.disable_enabled,
+  'first_response_timeout_setting.disable_window_minutes':
+    values.first_response_timeout_setting.disable_window_minutes,
+  'first_response_timeout_setting.disable_rate':
+    values.first_response_timeout_setting.disable_rate,
   'monitor_setting.auto_test_channel_enabled':
     values.monitor_setting.auto_test_channel_enabled,
   'monitor_setting.auto_test_channel_minutes':
@@ -341,6 +389,56 @@ export function RoutingReliabilitySection({
                             {t('Normalized:')} {autoRetryParsed.normalized}
                           </span>
                         )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='first_response_timeout_setting.retry_enabled'
+                render={({ field }) => (
+                  <SettingsSwitchItem>
+                    <SettingsSwitchContent>
+                      <FormLabel>{t('Retry slow first responses')}</FormLabel>
+                      <FormDescription>
+                        {t(
+                          'Cancel text streams that exceed the first-response timeout and retry with the existing retry budget.'
+                        )}
+                      </FormDescription>
+                    </SettingsSwitchContent>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </SettingsSwitchItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='first_response_timeout_setting.timeout_seconds'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      {t('First-response timeout (seconds)')}
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min={1}
+                        max={300}
+                        step={1}
+                        {...safeNumberFieldProps(field)}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Maximum time to wait for the first valid upstream stream event.'
+                      )}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -578,6 +676,79 @@ export function RoutingReliabilitySection({
                     <FormDescription>
                       {t(
                         'If an upstream error contains any of these keywords (case insensitive), the channel will be disabled automatically.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='first_response_timeout_setting.disable_enabled'
+                render={({ field }) => (
+                  <SettingsSwitchItem>
+                    <SettingsSwitchContent>
+                      <FormLabel>
+                        {t('Disable on first-response timeout rate')}
+                      </FormLabel>
+                      <FormDescription>
+                        {t(
+                          'Temporarily disable channels whose first-response timeout rate reaches the configured threshold.'
+                        )}
+                      </FormDescription>
+                    </SettingsSwitchContent>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </SettingsSwitchItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='first_response_timeout_setting.disable_window_minutes'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Timeout rate window (minutes)')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min={1}
+                        max={60}
+                        step={1}
+                        {...safeNumberFieldProps(field)}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t('Rolling window used to calculate timeout rate.')}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='first_response_timeout_setting.disable_rate'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Timeout disable rate (%)')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min={0.01}
+                        max={100}
+                        step={0.01}
+                        {...safeNumberFieldProps(field)}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Disable the channel when timed-out attempts reach this percentage.'
                       )}
                     </FormDescription>
                     <FormMessage />

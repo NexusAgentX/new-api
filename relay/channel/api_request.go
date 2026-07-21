@@ -476,6 +476,23 @@ func sendPingData(c *gin.Context, mutex *sync.Mutex) error {
 func DoRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
 	return doRequest(c, req, info)
 }
+
+func shouldMonitorFirstResponse(info *common.RelayInfo) bool {
+	if info == nil || !info.IsStream || info.IsChannelTest {
+		return false
+	}
+	setting := operation_setting.GetFirstResponseTimeoutSetting()
+	if (!setting.RetryEnabled && !setting.DisableEnabled) || operation_setting.ValidateFirstResponseTimeoutSeconds(setting.TimeoutSeconds) != nil {
+		return false
+	}
+	switch info.RelayFormat {
+	case types.RelayFormatOpenAI, types.RelayFormatOpenAIResponses, types.RelayFormatClaude, types.RelayFormatGemini:
+		return true
+	default:
+		return false
+	}
+}
+
 func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
 	var client *http.Client
 	var err error
@@ -488,13 +505,23 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		client = service.GetHttpClient()
 	}
 
+	monitoredFirstResponse := false
+	if shouldMonitorFirstResponse(info) {
+		setting := operation_setting.GetFirstResponseTimeoutSetting()
+		requestContext, monitored := info.BeginFirstResponseAttempt(c.Request.Context(), setting.TimeoutSeconds)
+		if monitored {
+			req = req.WithContext(requestContext)
+			monitoredFirstResponse = true
+		}
+	}
+
 	var stopPinger context.CancelFunc
 	var pingerDone <-chan struct{}
 	if info.IsStream {
 		helper.SetEventStreamHeaders(c)
 		// 处理流式请求的 ping 保活
 		generalSettings := operation_setting.GetGeneralSetting()
-		if generalSettings.PingIntervalEnabled && !info.DisablePing {
+		if generalSettings.PingIntervalEnabled && !info.DisablePing && !monitoredFirstResponse {
 			pingInterval := time.Duration(generalSettings.PingIntervalSeconds) * time.Second
 			stopPinger, pingerDone = startPingKeepAlive(c, pingInterval)
 			// 使用defer确保在任何情况下都能停止ping goroutine
@@ -518,11 +545,18 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	upstreamStart := time.Now()
 	resp, err := client.Do(req)
 	if err != nil {
+		if timeoutErr := info.FirstResponseTimeoutError(); timeoutErr != nil {
+			logger.LogError(c, timeoutErr.Error())
+			return nil, timeoutErr
+		}
 		logger.LogError(c, "do request failed: "+err.Error())
 		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request failed"))
 	}
 	if resp == nil {
 		return nil, errors.New("resp is nil")
+	}
+	if monitoredFirstResponse && (resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices) {
+		info.CompleteFirstResponseAttempt()
 	}
 
 	// Server-Timing decomposes the caller's wait: "recv" spans request arrival

@@ -59,6 +59,8 @@ type Channel struct {
 
 	OtherSettings string `json:"settings" gorm:"column:settings"` // 其他设置，存储azure版本等不需要检索的信息，详见dto.ChannelOtherSettings
 
+	FirstResponseTimeoutStats *dto.FirstResponseTimeoutStats `json:"first_response_timeout_stats,omitempty" gorm:"-"`
+
 	// cache info
 	Keys []string `json:"-" gorm:"-"`
 }

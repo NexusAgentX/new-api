@@ -50,7 +50,7 @@ func streamResponsePaLM2OpenAI(palmResponse *PaLMChatResponse) *dto.ChatCompleti
 	return &response
 }
 
-func palmStreamHandler(c *gin.Context, resp *http.Response) (*types.NewAPIError, string) {
+func palmStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*types.NewAPIError, string) {
 	responseText := ""
 	responseId := helper.GetResponseID(c)
 	createdTime := common.GetTimestamp()
@@ -87,17 +87,26 @@ func palmStreamHandler(c *gin.Context, resp *http.Response) (*types.NewAPIError,
 		stopChan <- true
 	}()
 	helper.SetEventStreamHeaders(c)
-	c.Stream(func(w io.Writer) bool {
+	for {
 		select {
 		case data := <-dataChan:
+			info.SetFirstResponseTime()
 			c.Render(-1, common.CustomEvent{Data: "data: " + data})
-			return true
+			_ = helper.FlushWriter(c)
 		case <-stopChan:
-			c.Render(-1, common.CustomEvent{Data: "data: [DONE]"})
-			return false
+			if !info.IsFirstResponseAttemptTimedOut() {
+				c.Render(-1, common.CustomEvent{Data: "data: [DONE]"})
+				_ = helper.FlushWriter(c)
+			}
+			goto streamEnded
 		}
-	})
+	}
+
+streamEnded:
 	service.CloseResponseBodyGracefully(resp)
+	if timeoutErr := info.FirstResponseTimeoutError(); timeoutErr != nil {
+		return timeoutErr, ""
+	}
 	return nil, responseText
 }
 
