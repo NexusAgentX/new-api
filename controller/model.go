@@ -229,6 +229,7 @@ func ListModels(c *gin.Context, modelType int) {
 		return
 	}
 	ownerGroups := groups.ownerGroups
+	autoGroupPolicy, _ := common.GetContextKeyType[*model.TokenAutoGroupPolicy](c, constant.ContextKeyTokenAutoGroupPolicy)
 	modelLimitEnable := common.GetContextKeyBool(c, constant.ContextKeyTokenModelLimitEnabled)
 	var tokenModelLimit map[string]bool
 	if modelLimitEnable {
@@ -241,6 +242,9 @@ func ListModels(c *gin.Context, modelType int) {
 		}
 	}
 	models := service.GetGroupsEnabledModels(ownerGroups)
+	if groups.tokenGroup == "auto" && autoGroupPolicy != nil {
+		models = service.FilterUserModelsByAutoGroupPolicy(groups.userGroup, models, ownerGroups, autoGroupPolicy)
+	}
 	for _, modelName := range models {
 		if modelLimitEnable {
 			matchingName := ratio_setting.FormatMatchingModelName(modelName)
@@ -280,7 +284,22 @@ func ListModels(c *gin.Context, modelType int) {
 
 	ownerByModel := map[string]string{}
 	if len(ownerGroups) > 0 {
-		ownerByModel = getPreferredModelOwners(userModelNames, ownerGroups)
+		if groups.tokenGroup == "auto" && autoGroupPolicy != nil {
+			allowedGroupsByModel := make(map[string][]string, len(userModelNames))
+			for _, modelName := range userModelNames {
+				allowedGroupsByModel[modelName] = service.FilterAutoGroupsByTokenPolicy(groups.userGroup, modelName, ownerGroups, autoGroupPolicy)
+			}
+			channelTypes, ownerErr := model.GetPreferredModelOwnerChannelTypesByModelGroups(userModelNames, allowedGroupsByModel)
+			if ownerErr != nil {
+				common.SysLog(fmt.Sprintf("GetPreferredModelOwnerChannelTypesByModelGroups error: %v", ownerErr))
+			} else {
+				for modelName, channelType := range channelTypes {
+					ownerByModel[modelName] = channelOwnerName(channelType)
+				}
+			}
+		} else {
+			ownerByModel = getPreferredModelOwners(userModelNames, ownerGroups)
+		}
 	}
 	for alias, target := range aliasTargets {
 		ownerByModel[alias] = ownerByModel[target]

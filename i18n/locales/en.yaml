@@ -51,6 +51,7 @@ token.auto_groups_too_many: "A token can select at most {{.Max}} Auto groups"
 token.auto_groups_duplicate: "Auto group {{.Group}} is duplicated"
 token.auto_groups_invalid: "Auto group {{.Group}} is unavailable or unauthorized"
 token.request_customization_invalid: "Invalid request customization: {{.Error}}"
+token.auto_group_policy_invalid: "Invalid auto-group policy: {{.Error}}"
 
 # Redemption messages
 redemption.name_length: "Redemption code name length must be between 1-20"

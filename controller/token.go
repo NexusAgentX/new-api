@@ -274,6 +274,11 @@ func AddToken(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgTokenRequestCustomizationInvalid, map[string]any{"Error": err.Error()})
 		return
 	}
+	token.AutoGroupPolicy, err = model.NormalizeTokenAutoGroupPolicy(token.AutoGroupPolicy)
+	if err != nil {
+		common.ApiErrorI18n(c, i18n.MsgTokenAutoGroupPolicyInvalid, map[string]any{"Error": err.Error()})
+		return
+	}
 	if len(token.Name) > 50 {
 		common.ApiErrorI18n(c, i18n.MsgTokenNameTooLong)
 		return
@@ -333,6 +338,7 @@ func AddToken(c *gin.Context) {
 		Group:                token.Group,
 		CrossGroupRetry:      token.CrossGroupRetry,
 		AutoGroups:           token.AutoGroups,
+		AutoGroupPolicy:      token.AutoGroupPolicy,
 		RequestCustomization: token.RequestCustomization,
 	}
 	err = cleanToken.Insert()
@@ -374,6 +380,11 @@ func UpdateToken(c *gin.Context) {
 		token.RequestCustomization, err = model.NormalizeTokenRequestCustomization(token.RequestCustomization)
 		if err != nil {
 			common.ApiErrorI18n(c, i18n.MsgTokenRequestCustomizationInvalid, map[string]any{"Error": err.Error()})
+			return
+		}
+		token.AutoGroupPolicy, err = model.NormalizeTokenAutoGroupPolicy(token.AutoGroupPolicy)
+		if err != nil {
+			common.ApiErrorI18n(c, i18n.MsgTokenAutoGroupPolicyInvalid, map[string]any{"Error": err.Error()})
 			return
 		}
 	}
@@ -428,6 +439,7 @@ func UpdateToken(c *gin.Context) {
 				return
 			}
 		}
+		cleanToken.AutoGroupPolicy = token.AutoGroupPolicy
 		cleanToken.RequestCustomization = token.RequestCustomization
 	}
 	err = cleanToken.Update()

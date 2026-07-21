@@ -425,6 +425,47 @@ func TestListModelsIncludesTokenModelAliasesForAvailableTargets(t *testing.T) {
 	require.NotContains(t, ids, "hidden")
 }
 
+func TestListModelsAutoGroupPolicyHidesExcludedModels(t *testing.T) {
+	withSelfUseModeEnabled(t)
+	db := setupModelListControllerTestDB(t)
+
+	originalAutoGroups := setting.AutoGroups2JsonString()
+	originalUsableGroups := setting.UserUsableGroups2JSONString()
+	originalRatios := ratio_setting.GroupRatio2JSONString()
+	require.NoError(t, setting.UpdateAutoGroupsByJsonString(`["cheap","premium"]`))
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"auto":"","cheap":"","premium":""}`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"cheap":0.5,"premium":3}`))
+	t.Cleanup(func() {
+		require.NoError(t, setting.UpdateAutoGroupsByJsonString(originalAutoGroups))
+		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(originalUsableGroups))
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(originalRatios))
+	})
+
+	require.NoError(t, db.Create(&[]model.Ability{
+		{Group: "cheap", Model: "cheap-model", ChannelId: 1, Enabled: true},
+		{Group: "premium", Model: "premium-model", ChannelId: 2, Enabled: true},
+	}).Error)
+
+	policy := &model.TokenAutoGroupPolicy{
+		DefaultRule: &model.TokenAutoGroupRule{
+			Mode:   model.TokenAutoGroupModeAllowlist,
+			Groups: []string{"cheap"},
+		},
+	}
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "default")
+	common.SetContextKey(ctx, constant.ContextKeyTokenGroup, "auto")
+	common.SetContextKey(ctx, constant.ContextKeyTokenAutoGroupPolicy, policy)
+
+	ListModels(ctx, constant.ChannelTypeOpenAI)
+
+	ids := decodeListModelsResponse(t, recorder)
+	require.Contains(t, ids, "cheap-model")
+	require.NotContains(t, ids, "premium-model")
+}
+
 func TestListModelsTokenLimitIncludesTieredBillingModel(t *testing.T) {
 	withSelfUseModeDisabled(t)
 	withTieredBillingConfig(t, map[string]string{

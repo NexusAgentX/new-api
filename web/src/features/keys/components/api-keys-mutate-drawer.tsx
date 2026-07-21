@@ -89,6 +89,7 @@ import {
 } from './api-key-group-combobox'
 import { useApiKeys } from './api-keys-provider'
 import { AutoGroupOrderEditor } from './auto-group-order-editor'
+import { AutoGroupPolicyEditor } from './auto-group-policy-editor'
 
 type ApiKeyMutateDrawerProps = {
   open: boolean
@@ -359,6 +360,9 @@ export function ApiKeysMutateDrawer({
     ? t('Enter quota in tokens')
     : t('Enter quota in {{currency}}', { currency: currencyLabel })
   const autoGroupsMode = form.watch('auto_groups_mode')
+  const selectedAutoGroups = form.watch('auto_groups')
+  const policyAutoGroups =
+    autoGroupsMode === 'custom' ? selectedAutoGroups : globalAutoGroups
   const unlimitedQuota = form.watch('unlimited_quota')
 
   return (
@@ -693,6 +697,33 @@ export function ApiKeysMutateDrawer({
                 </CollapsibleTrigger>
                 <CollapsibleContent>
                   <div className='flex flex-col gap-4 pt-2'>
+                    {selectedGroup === 'auto' && (
+                      <FormField
+                        control={form.control}
+                        name='auto_group_policy'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormControl>
+                              <AutoGroupPolicyEditor
+                                value={field.value}
+                                onChange={field.onChange}
+                                autoGroups={policyAutoGroups}
+                                groupRatios={Object.fromEntries(
+                                  groups.flatMap((group) =>
+                                    group.ratio === undefined
+                                      ? []
+                                      : [[group.value, group.ratio] as const]
+                                  )
+                                )}
+                                models={models}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    )}
+
                     <FormField
                       control={form.control}
                       name='model_limits'

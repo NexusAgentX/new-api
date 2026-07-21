@@ -491,6 +491,11 @@ func SetupContextForToken(c *gin.Context, token *model.Token, parts ...string) e
 		abortWithOpenAiMessage(c, http.StatusInternalServerError, common.TranslateMessage(c, i18n.MsgTokenRequestCustomizationInvalid, map[string]any{"Error": err.Error()}))
 		return err
 	}
+	autoGroupPolicy, err := model.ParseTokenAutoGroupPolicy(token.AutoGroupPolicy)
+	if err != nil {
+		abortWithOpenAiMessage(c, http.StatusInternalServerError, common.TranslateMessage(c, i18n.MsgTokenAutoGroupPolicyInvalid, map[string]any{"Error": err.Error()}))
+		return err
+	}
 	c.Set("id", token.UserId)
 	c.Set("token_id", token.Id)
 	c.Set("token_key", token.Key)
@@ -516,6 +521,9 @@ func SetupContextForToken(c *gin.Context, token *model.Token, parts ...string) e
 		} else if len(autoGroups) > 0 {
 			common.SetContextKey(c, constant.ContextKeyTokenAutoGroups, autoGroups)
 		}
+	}
+	if autoGroupPolicy != nil {
+		common.SetContextKey(c, constant.ContextKeyTokenAutoGroupPolicy, autoGroupPolicy)
 	}
 	if len(requestCustomization.ModelMapping) > 0 {
 		common.SetContextKey(c, constant.ContextKeyTokenModelMapping, requestCustomization.ModelMapping)

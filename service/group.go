@@ -131,3 +131,75 @@ func GetUserGroupRatio(userGroup, group string) float64 {
 	}
 	return ratio_setting.GetGroupRatio(group)
 }
+
+// FilterAutoGroupsByTokenPolicy narrows the supplied ordered candidates for
+// the effective routed model. A token policy can never add a group that is not
+// already present in the request's permission-filtered candidate list.
+func FilterAutoGroupsByTokenPolicy(userGroup, modelName string, groups []string, policy *model.TokenAutoGroupPolicy) []string {
+	if policy == nil {
+		return groups
+	}
+	rule, ok := policy.RuleForModel(modelName)
+	if !ok {
+		return groups
+	}
+
+	configuredGroups := make(map[string]struct{}, len(rule.Groups))
+	for _, group := range rule.Groups {
+		configuredGroups[group] = struct{}{}
+	}
+	filtered := make([]string, 0, len(groups))
+	for _, group := range groups {
+		if rule.Mode == model.TokenAutoGroupModeAllowlist {
+			if _, ok := configuredGroups[group]; !ok {
+				continue
+			}
+		} else if rule.Mode == model.TokenAutoGroupModeDenylist {
+			if _, ok := configuredGroups[group]; ok {
+				continue
+			}
+		}
+
+		ratio := GetUserGroupRatio(userGroup, group)
+		if rule.MinRatio != nil && ratio < *rule.MinRatio {
+			continue
+		}
+		if rule.MaxRatio != nil && ratio > *rule.MaxRatio {
+			continue
+		}
+		filtered = append(filtered, group)
+	}
+	return filtered
+}
+
+func FilterUserModelsByAutoGroupPolicy(userGroup string, modelNames, groups []string, policy *model.TokenAutoGroupPolicy) []string {
+	if policy == nil || len(modelNames) == 0 {
+		return modelNames
+	}
+
+	candidateGroups := make(map[string]struct{})
+	for _, modelName := range modelNames {
+		for _, group := range FilterAutoGroupsByTokenPolicy(userGroup, modelName, groups, policy) {
+			candidateGroups[group] = struct{}{}
+		}
+	}
+	modelsByGroup := make(map[string]map[string]struct{}, len(candidateGroups))
+	for group := range candidateGroups {
+		availableModels := make(map[string]struct{})
+		for _, modelName := range model.GetGroupEnabledModels(group) {
+			availableModels[modelName] = struct{}{}
+		}
+		modelsByGroup[group] = availableModels
+	}
+
+	filtered := make([]string, 0, len(modelNames))
+	for _, modelName := range modelNames {
+		for _, group := range FilterAutoGroupsByTokenPolicy(userGroup, modelName, groups, policy) {
+			if _, ok := modelsByGroup[group][modelName]; ok {
+				filtered = append(filtered, modelName)
+				break
+			}
+		}
+	}
+	return filtered
+}

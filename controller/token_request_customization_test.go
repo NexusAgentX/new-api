@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestUpdateTokenPersistsNormalizedRequestCustomization(t *testing.T) {
+func TestUpdateTokenPersistsRequestCustomizationAndAutoGroupPolicySeparately(t *testing.T) {
 	db := setupTokenControllerTestDB(t)
 	token := seedToken(t, db, 1, "customized-token", "custom1234token5678")
 
@@ -27,6 +27,12 @@ func TestUpdateTokenPersistsNormalizedRequestCustomization(t *testing.T) {
 			"version": 1,
 			"model_mapping": {" gpt-5.5 ": " glm-5.2 "}
 		}`,
+		"auto_group_policy": `{
+			"default_rule": {
+				"mode": "allowlist",
+				"groups": [" preferred "]
+			}
+		}`,
 	}
 
 	ctx, recorder := newAuthenticatedContext(t, http.MethodPut, "/api/token/", body, 1)
@@ -40,6 +46,15 @@ func TestUpdateTokenPersistsNormalizedRequestCustomization(t *testing.T) {
 	customization, err := model.ParseTokenRequestCustomization(updated.RequestCustomization)
 	require.NoError(t, err)
 	assert.Equal(t, map[string]string{"gpt-5.5": "glm-5.2"}, customization.ModelMapping)
+	assert.NotContains(t, updated.RequestCustomization, "auto_group_policy")
+
+	policy, err := model.ParseTokenAutoGroupPolicy(updated.AutoGroupPolicy)
+	require.NoError(t, err)
+	require.NotNil(t, policy)
+	rule, ok := policy.RuleForModel("gpt-5.5")
+	require.True(t, ok)
+	assert.Equal(t, model.TokenAutoGroupModeAllowlist, rule.Mode)
+	assert.Equal(t, []string{"preferred"}, rule.Groups)
 }
 
 func TestUpdateTokenRejectsCyclicRequestCustomization(t *testing.T) {

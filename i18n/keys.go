@@ -59,6 +59,7 @@ const (
 	MsgTokenAutoGroupsDuplicate         = "token.auto_groups_duplicate"
 	MsgTokenAutoGroupsInvalid           = "token.auto_groups_invalid"
 	MsgTokenRequestCustomizationInvalid = "token.request_customization_invalid"
+	MsgTokenAutoGroupPolicyInvalid      = "token.auto_group_policy_invalid"
 )
 
 // Redemption related messages

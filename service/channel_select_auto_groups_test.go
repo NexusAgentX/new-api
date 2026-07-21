@@ -89,6 +89,39 @@ func createChannelSelectAutoGroupsChannel(t *testing.T, db *gorm.DB, id int, gro
 	}).Error)
 }
 
+func TestCacheGetRandomSatisfiedChannelPolicyCannotExpandTokenAutoGroups(t *testing.T) {
+	db := setupChannelSelectAutoGroupsTest(t)
+	const modelName = "auto-groups-policy-model"
+	createChannelSelectAutoGroupsChannel(t, db, 2201, "vip", modelName)
+	createChannelSelectAutoGroupsChannel(t, db, 2202, "default", modelName)
+	model.InitChannelCache()
+	require.NoError(t, setting.UpdateAutoGroupsByJsonString(`["default"]`))
+
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "default")
+	common.SetContextKey(ctx, constant.ContextKeyTokenAutoGroups, []string{"vip"})
+	common.SetContextKey(ctx, constant.ContextKeyTokenAutoGroupPolicy, &model.TokenAutoGroupPolicy{
+		DefaultRule: &model.TokenAutoGroupRule{
+			Mode:   model.TokenAutoGroupModeAllowlist,
+			Groups: []string{"default"},
+		},
+	})
+
+	channel, selectedGroup, err := CacheGetRandomSatisfiedChannel(&RetryParam{
+		Ctx:         ctx,
+		TokenGroup:  "auto",
+		ModelName:   modelName,
+		RequestPath: "/v1/chat/completions",
+		Retry:       common.GetPointer(0),
+	})
+
+	assert.Nil(t, channel)
+	assert.Equal(t, "auto", selectedGroup)
+	assert.ErrorIs(t, err, ErrNoAutoGroupsMatchTokenPolicy)
+	assert.Empty(t, common.GetContextKeyStringSlice(ctx, constant.ContextKeyAutoGroupCandidates))
+}
+
 func TestCacheGetRandomSatisfiedChannelUsesTokenAutoGroupsWhenGlobalAutoIsEmpty(t *testing.T) {
 	db := setupChannelSelectAutoGroupsTest(t)
 	const modelName = "auto-groups-runtime-model"

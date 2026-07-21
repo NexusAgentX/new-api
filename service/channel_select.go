@@ -10,6 +10,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+var ErrNoAutoGroupsMatchTokenPolicy = errors.New("令牌自动分组策略过滤后没有可用分组")
+
 type RetryParam struct {
 	Ctx          *gin.Context
 	TokenGroup   string
@@ -87,9 +89,19 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 	userGroup := common.GetContextKeyString(param.Ctx, constant.ContextKeyUserGroup)
 
 	if param.TokenGroup == "auto" {
-		autoGroups := GetRequestAutoGroups(param.Ctx, userGroup)
-		if len(autoGroups) == 0 {
-			return nil, selectGroup, errors.New("auto groups is not enabled")
+		policy, _ := common.GetContextKeyType[*model.TokenAutoGroupPolicy](param.Ctx, constant.ContextKeyTokenAutoGroupPolicy)
+		_, policyApplies := policy.RuleForModel(param.ModelName)
+		autoGroups, candidatesCached := common.GetContextKeyType[[]string](param.Ctx, constant.ContextKeyAutoGroupCandidates)
+		if !candidatesCached {
+			requestAutoGroups := GetRequestAutoGroups(param.Ctx, userGroup)
+			if len(requestAutoGroups) == 0 {
+				return nil, selectGroup, errors.New("auto groups is not enabled")
+			}
+			autoGroups = FilterAutoGroupsByTokenPolicy(userGroup, param.ModelName, requestAutoGroups, policy)
+			common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupCandidates, autoGroups)
+		}
+		if policyApplies && len(autoGroups) == 0 {
+			return nil, selectGroup, ErrNoAutoGroupsMatchTokenPolicy
 		}
 
 		// startGroupIndex: the group index to start searching from
@@ -152,6 +164,9 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 				common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex, i)
 			}
 			break
+		}
+		if policyApplies && channel == nil {
+			return nil, selectGroup, ErrNoAutoGroupsMatchTokenPolicy
 		}
 	} else {
 		channel, err = model.GetRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.GetRetry(), param.RequestPath)
