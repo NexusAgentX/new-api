@@ -27,6 +27,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 
+import { serializeModelMappingRows } from '../lib/model-mapping-serialization'
+
 type ModelMappingEditorProps = {
   value: string
   onChange: (value: string) => void
@@ -137,19 +139,6 @@ export function ModelMappingEditor(props: ModelMappingEditorProps) {
     parseJsonToRows(props.value)
   }, [props.value, parseJsonToRows])
 
-  const convertRowsToJson = (updatedRows: MappingRow[]): string => {
-    if (updatedRows.length === 0) {
-      return ''
-    }
-    const obj: Record<string, string> = {}
-    updatedRows.forEach((row) => {
-      if (row.from.trim()) {
-        obj[row.from.trim()] = row.to.trim()
-      }
-    })
-    return JSON.stringify(obj, null, 2)
-  }
-
   const syncRows = (updatedRows: MappingRow[]) => {
     setRows(updatedRows)
     const duplicates = getDuplicateSources(updatedRows)
@@ -160,7 +149,7 @@ export function ModelMappingEditor(props: ModelMappingEditorProps) {
       return
     }
 
-    const json = convertRowsToJson(updatedRows)
+    const json = serializeModelMappingRows(updatedRows)
     setJsonError(null)
     setJsonValue(json)
     props.onChange(json)
@@ -212,7 +201,7 @@ export function ModelMappingEditor(props: ModelMappingEditorProps) {
     if (nextMode === 'json') {
       const duplicates = getDuplicateSources(rows)
       if (duplicates.length === 0) {
-        const json = convertRowsToJson(rows)
+        const json = serializeModelMappingRows(rows)
         setJsonValue(json)
         props.onChange(json)
       }
