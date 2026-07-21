@@ -101,6 +101,14 @@ export function FinanceTrend(props: {
             },
           ],
         },
+        dimension: {
+          content: [
+            {
+              key: (datum: { metric: string }) => datum.metric,
+              value: (datum: { value: number }) => formatMoney(datum.value),
+            },
+          ],
+        },
       },
       padding: { left: 16, right: 16, top: 8, bottom: 8 },
       theme: resolvedTheme === 'dark' ? 'dark' : 'light',
