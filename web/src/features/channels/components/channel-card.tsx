@@ -62,6 +62,7 @@ function ChannelCardComponent({
   const fieldLabels: Record<string, string> = {
     balance: t('Used / Remaining'),
     response_time: t('Response'),
+    first_response_timeout_stats: t('TTFT Timeout Rate'),
     test_time: t('Last Tested'),
   }
 
@@ -76,6 +77,7 @@ function ChannelCardComponent({
   const weightCell = renderCell('weight')
   const balanceCell = renderCell('balance')
   const responseCell = renderCell('response_time')
+  const timeoutRateCell = renderCell('first_response_timeout_stats')
   const testCell = renderCell('test_time')
 
   const labelClass = 'text-muted-foreground text-[11px] font-medium select-none'
@@ -145,11 +147,20 @@ function ChannelCardComponent({
               {fieldLabels.response_time}
             </span>
             <span className={cn('mt-2', labelClass)}>
-              {fieldLabels.test_time}
+              {fieldLabels.first_response_timeout_stats}
             </span>
             <div className='overflow-hidden text-sm'>
               {responseCell ?? <span className='text-muted-foreground'>-</span>}
             </div>
+            <div className='overflow-hidden text-sm'>
+              {timeoutRateCell ?? (
+                <span className='text-muted-foreground'>-</span>
+              )}
+            </div>
+            <span className={cn('mt-2', labelClass)}>
+              {fieldLabels.test_time}
+            </span>
+            <span />
             <div className='overflow-hidden text-sm'>
               {testCell ?? <span className='text-muted-foreground'>-</span>}
             </div>

@@ -87,7 +87,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	var firstEventError *types.NewAPIError
 	forwardedEvent := false
 
-	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
+	timeoutErr := helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 
 		// 检查当前数据是否包含 completed 状态和 usage 信息
 		var streamResponse dto.ResponsesStreamResponse
@@ -169,6 +169,9 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			}
 		}
 	})
+	if timeoutErr != nil {
+		return nil, timeoutErr
+	}
 	if firstEventError != nil {
 		info.ResetFirstResponseTimeForRetry()
 		return nil, firstEventError

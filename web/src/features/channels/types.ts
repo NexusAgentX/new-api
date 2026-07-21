@@ -34,6 +34,17 @@ export const channelInfoSchema = z.object({
 
 export type ChannelInfo = z.infer<typeof channelInfoSchema>
 
+export const firstResponseTimeoutStatsSchema = z.object({
+  total_attempts: z.number().default(0),
+  timeout_attempts: z.number().default(0),
+  timeout_rate: z.number().default(0),
+  window_minutes: z.number().default(0),
+})
+
+export type FirstResponseTimeoutStats = z.infer<
+  typeof firstResponseTimeoutStatsSchema
+>
+
 export const channelSchema = z.object({
   id: z.number(),
   type: z.number(),
@@ -76,6 +87,7 @@ export const channelSchema = z.object({
     multi_key_polling_index: 0,
     multi_key_mode: 'random',
   }),
+  first_response_timeout_stats: firstResponseTimeoutStatsSchema.optional(),
   settings: z.string().default('{}'), // other_settings JSON
 })
 

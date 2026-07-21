@@ -59,6 +59,7 @@ const (
 	ErrorCodeChannelAwsClientError        ErrorCode = "channel:aws_client_error"
 	ErrorCodeChannelInvalidKey            ErrorCode = "channel:invalid_key"
 	ErrorCodeChannelResponseTimeExceeded  ErrorCode = "channel:response_time_exceeded"
+	ErrorCodeUpstreamFirstResponseTimeout ErrorCode = "upstream_first_response_timeout"
 
 	// client request error
 	ErrorCodeReadRequestBodyFailed ErrorCode = "read_request_body_failed"
@@ -312,6 +313,14 @@ func NewErrorWithStatusCode(err error, errorCode ErrorCode, statusCode int, ops 
 	}
 
 	return e
+}
+
+func NewUpstreamFirstResponseTimeoutError(timeoutSeconds int) *NewAPIError {
+	return NewErrorWithStatusCode(
+		fmt.Errorf("upstream channel did not return a first response within %d seconds", timeoutSeconds),
+		ErrorCodeUpstreamFirstResponseTimeout,
+		524,
+	)
 }
 
 func WithOpenAIError(openAIError OpenAIError, statusCode int, ops ...NewAPIErrorOptions) *NewAPIError {

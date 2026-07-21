@@ -552,6 +552,14 @@ export function useChannelsColumns(
   const { sensitiveVisible } = useChannels()
   const enableSelection = options.enableSelection ?? true
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
+  const timeoutRateFormatter = useMemo(
+    () =>
+      new Intl.NumberFormat(locale, {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2,
+      }),
+    [locale]
+  )
   // The column definitions only depend on the translation function, the active
   // locale, and sensitive-data visibility. Memoizing keeps the array (and every
   // cell renderer reference) stable across unrelated re-renders, so react-table
@@ -1118,6 +1126,41 @@ export function useChannelsColumns(
         size: 110,
       },
 
+      // First response timeout rate column
+      {
+        accessorKey: 'first_response_timeout_stats',
+        header: t('TTFT Timeout Rate'),
+        meta: { mobileHidden: true },
+        cell: ({ row }) => {
+          const stats = row.original.first_response_timeout_stats
+          if (!stats || stats.total_attempts <= 0) {
+            return <span className='text-muted-foreground text-xs'>-</span>
+          }
+
+          return (
+            <div className='flex min-w-0 flex-col items-start gap-1'>
+              <StatusBadge
+                label={`${timeoutRateFormatter.format(stats.timeout_rate)}%`}
+                variant={stats.timeout_attempts > 0 ? 'warning' : 'success'}
+                size='sm'
+                copyable={false}
+                className='-ml-1.5 tabular-nums'
+              />
+              <span className='text-muted-foreground text-xs whitespace-nowrap tabular-nums'>
+                {t('{{timeouts}}/{{total}} attempts, {{minutes}} min', {
+                  timeouts: stats.timeout_attempts,
+                  total: stats.total_attempts,
+                  minutes: stats.window_minutes,
+                })}
+              </span>
+            </div>
+          )
+        },
+        size: 180,
+        minSize: 160,
+        enableSorting: false,
+      },
+
       // Test Time column
       {
         accessorKey: 'test_time',
@@ -1184,6 +1227,6 @@ export function useChannelsColumns(
         meta: { pinned: 'right' as const },
       },
     ],
-    [enableSelection, t, locale, sensitiveVisible]
+    [enableSelection, t, locale, sensitiveVisible, timeoutRateFormatter]
   )
 }

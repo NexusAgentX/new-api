@@ -6,12 +6,16 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	constant2 "github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -198,13 +202,100 @@ func TestProcessHeaderOverride_PassHeadersTemplateSetsRuntimeHeaders(t *testing.
 	require.Empty(t, upstreamReq.Header.Get("X-Codex-Beta-Features"))
 }
 
+var initDoRequestTestContext sync.Once
+
 func newDoRequestTestContext() (*gin.Context, *httptest.ResponseRecorder) {
-	service.InitHttpClient()
-	gin.SetMode(gin.TestMode)
+	initDoRequestTestContext.Do(func() {
+		service.InitHttpClient()
+		gin.SetMode(gin.TestMode)
+	})
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	return ctx, recorder
+}
+
+func TestFirstResponseTimeoutCancelsStreamBeforeDownstreamCommit(t *testing.T) {
+	originalStreamingTimeout := constant2.StreamingTimeout
+	constant2.StreamingTimeout = 30
+	t.Cleanup(func() { constant2.StreamingTimeout = originalStreamingTimeout })
+	setting := operation_setting.GetFirstResponseTimeoutSetting()
+	original := *setting
+	t.Cleanup(func() { *setting = original })
+	setting.RetryEnabled = true
+	setting.DisableEnabled = false
+	setting.TimeoutSeconds = 1
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer upstream.Close()
+
+	ctx, recorder := newDoRequestTestContext()
+	info := &relaycommon.RelayInfo{
+		IsStream:    true,
+		RelayFormat: types.RelayFormatOpenAIResponses,
+		ChannelMeta: &relaycommon.ChannelMeta{},
+	}
+	req, err := http.NewRequest(http.MethodPost, upstream.URL, strings.NewReader(`{"model":"gpt-test"}`))
+	require.NoError(t, err)
+
+	resp, err := DoRequest(ctx, req, info)
+	require.NoError(t, err)
+	t.Cleanup(func() { info.EndFirstResponseAttempt() })
+
+	timeoutErr := helper.StreamScannerHandler(ctx, resp, info, func(string, *helper.StreamResult) {})
+	require.NotNil(t, timeoutErr)
+	require.Equal(t, 524, timeoutErr.StatusCode)
+	require.Equal(t, types.ErrorCodeUpstreamFirstResponseTimeout, timeoutErr.GetErrorCode())
+	require.False(t, recorder.Flushed)
+	require.Empty(t, recorder.Body.String())
+}
+
+func TestFirstResponseEventStopsTimeout(t *testing.T) {
+	originalStreamingTimeout := constant2.StreamingTimeout
+	constant2.StreamingTimeout = 30
+	t.Cleanup(func() { constant2.StreamingTimeout = originalStreamingTimeout })
+	setting := operation_setting.GetFirstResponseTimeoutSetting()
+	original := *setting
+	t.Cleanup(func() { *setting = original })
+	setting.RetryEnabled = true
+	setting.DisableEnabled = false
+	setting.TimeoutSeconds = 1
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("data: {\"type\":\"response.created\"}\n\n"))
+		w.(http.Flusher).Flush()
+		time.Sleep(1200 * time.Millisecond)
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer upstream.Close()
+
+	ctx, _ := newDoRequestTestContext()
+	info := &relaycommon.RelayInfo{
+		IsStream:    true,
+		RelayFormat: types.RelayFormatOpenAIResponses,
+		ChannelMeta: &relaycommon.ChannelMeta{},
+	}
+	req, err := http.NewRequest(http.MethodPost, upstream.URL, strings.NewReader(`{"model":"gpt-test"}`))
+	require.NoError(t, err)
+
+	resp, err := DoRequest(ctx, req, info)
+	require.NoError(t, err)
+	t.Cleanup(func() { info.EndFirstResponseAttempt() })
+	var received int
+
+	timeoutErr := helper.StreamScannerHandler(ctx, resp, info, func(string, *helper.StreamResult) {
+		received++
+	})
+	require.Nil(t, timeoutErr)
+	require.Equal(t, 1, received)
+	require.False(t, info.IsFirstResponseAttemptTimedOut())
 }
 
 func TestDoRequestEmitsServerTimingBreakdown(t *testing.T) {

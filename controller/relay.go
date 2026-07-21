@@ -228,6 +228,17 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			newAPIError = relayHandler(c, relayInfo)
 		}
 
+		attemptResult := relayInfo.EndFirstResponseAttempt()
+		channelError := *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan())
+		if attemptResult.TimedOut {
+			newAPIError = types.NewUpstreamFirstResponseTimeoutError(attemptResult.TimeoutSeconds)
+		}
+		if attemptResult.Monitored {
+			gopool.Go(func() {
+				service.RecordFirstResponseAttempt(channelError, attemptResult.TimedOut)
+			})
+		}
+
 		if newAPIError == nil {
 			relayInfo.LastError = nil
 			return
@@ -236,7 +247,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		newAPIError = service.NormalizeViolationFeeError(newAPIError)
 		relayInfo.LastError = newAPIError
 
-		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
+		processChannelError(c, channelError, newAPIError)
 
 		if !shouldRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry()) {
 			break
@@ -346,6 +357,9 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 	}
 	if _, ok := c.Get("specific_channel_id"); ok {
 		return false
+	}
+	if openaiErr.GetErrorCode() == types.ErrorCodeUpstreamFirstResponseTimeout {
+		return operation_setting.GetFirstResponseTimeoutSetting().RetryEnabled
 	}
 	code := openaiErr.StatusCode
 	if code >= 200 && code < 300 {

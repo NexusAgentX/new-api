@@ -10,15 +10,16 @@ import (
 type StreamEndReason string
 
 const (
-	StreamEndReasonNone        StreamEndReason = ""
-	StreamEndReasonDone        StreamEndReason = "done"
-	StreamEndReasonTimeout     StreamEndReason = "timeout"
-	StreamEndReasonClientGone  StreamEndReason = "client_gone"
-	StreamEndReasonScannerErr  StreamEndReason = "scanner_error"
-	StreamEndReasonHandlerStop StreamEndReason = "handler_stop"
-	StreamEndReasonEOF         StreamEndReason = "eof"
-	StreamEndReasonPanic       StreamEndReason = "panic"
-	StreamEndReasonPingFail    StreamEndReason = "ping_fail"
+	StreamEndReasonNone                 StreamEndReason = ""
+	StreamEndReasonDone                 StreamEndReason = "done"
+	StreamEndReasonTimeout              StreamEndReason = "timeout"
+	StreamEndReasonClientGone           StreamEndReason = "client_gone"
+	StreamEndReasonScannerErr           StreamEndReason = "scanner_error"
+	StreamEndReasonHandlerStop          StreamEndReason = "handler_stop"
+	StreamEndReasonEOF                  StreamEndReason = "eof"
+	StreamEndReasonPanic                StreamEndReason = "panic"
+	StreamEndReasonPingFail             StreamEndReason = "ping_fail"
+	StreamEndReasonFirstResponseTimeout StreamEndReason = "first_response_timeout"
 )
 
 const maxStreamErrorEntries = 20

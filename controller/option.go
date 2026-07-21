@@ -354,6 +354,46 @@ func UpdateOption(c *gin.Context) {
 			})
 			return
 		}
+	case "first_response_timeout_setting.timeout_seconds":
+		value, parseErr := strconv.Atoi(option.Value.(string))
+		if parseErr != nil {
+			common.ApiErrorMsg(c, "invalid first response timeout")
+			return
+		}
+		if err = operation_setting.ValidateFirstResponseTimeoutSeconds(value); err != nil {
+			common.ApiErrorMsg(c, err.Error())
+			return
+		}
+	case "first_response_timeout_setting.disable_window_minutes":
+		value, parseErr := strconv.Atoi(option.Value.(string))
+		if parseErr != nil {
+			common.ApiErrorMsg(c, "invalid first response disable window")
+			return
+		}
+		if err = operation_setting.ValidateFirstResponseDisableWindowMinutes(value); err != nil {
+			common.ApiErrorMsg(c, err.Error())
+			return
+		}
+	case "first_response_timeout_setting.disable_rate":
+		value, parseErr := strconv.ParseFloat(option.Value.(string), 64)
+		if parseErr != nil {
+			common.ApiErrorMsg(c, "invalid first response disable rate")
+			return
+		}
+		if err = operation_setting.ValidateFirstResponseDisableRate(value); err != nil {
+			common.ApiErrorMsg(c, err.Error())
+			return
+		}
+	case "first_response_timeout_setting.disable_min_timeout_attempts":
+		value, parseErr := strconv.Atoi(option.Value.(string))
+		if parseErr != nil {
+			common.ApiErrorMsg(c, "invalid minimum first response timeout attempts")
+			return
+		}
+		if err = operation_setting.ValidateFirstResponseDisableMinTimeoutAttempts(value); err != nil {
+			common.ApiErrorMsg(c, err.Error())
+			return
+		}
 	case "console_setting.api_info":
 		err = console_setting.ValidateConsoleSettings(option.Value.(string), "ApiInfo")
 		if err != nil {
