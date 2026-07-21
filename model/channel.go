@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/samber/lo"
@@ -999,6 +1000,11 @@ func (channel *Channel) ValidateSettings() error {
 	}
 	if _, err := common.ParseProxyURLStrict(channelParams.Proxy); err != nil {
 		return fmt.Errorf("invalid channel proxy: %w", err)
+	}
+	if channelParams.FirstResponseTimeoutSeconds != nil && *channelParams.FirstResponseTimeoutSeconds != 0 {
+		if err := operation_setting.ValidateFirstResponseTimeoutSeconds(*channelParams.FirstResponseTimeoutSeconds); err != nil {
+			return err
+		}
 	}
 	channelOtherSettings := &dto.ChannelOtherSettings{}
 	if channel.OtherSettings != "" {
