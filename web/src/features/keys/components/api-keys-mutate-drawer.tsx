@@ -83,6 +83,7 @@ import {
   type ApiKeyGroupOption,
 } from './api-key-group-combobox'
 import { useApiKeys } from './api-keys-provider'
+import { AutoGroupPolicyEditor } from './auto-group-policy-editor'
 
 type ApiKeyMutateDrawerProps = {
   open: boolean
@@ -121,6 +122,7 @@ export function ApiKeysMutateDrawer({
 
   const models = modelsData?.data || []
   const groupsRaw = groupsData?.data || {}
+  const autoGroups = groupsData?.auto_groups || []
   const groups: ApiKeyGroupOption[] = Object.entries(groupsRaw).map(
     ([key, info]) => ({
       value: key,
@@ -529,6 +531,31 @@ export function ApiKeysMutateDrawer({
                 </CollapsibleTrigger>
                 <CollapsibleContent>
                   <div className='flex flex-col gap-4 pt-2'>
+                    {selectedGroup === 'auto' && (
+                      <FormField
+                        control={form.control}
+                        name='auto_group_policy'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormControl>
+                              <AutoGroupPolicyEditor
+                                value={field.value}
+                                onChange={field.onChange}
+                                autoGroups={autoGroups}
+                                groupRatios={Object.fromEntries(
+                                  Object.entries(groupsRaw).map(
+                                    ([group, info]) => [group, info.ratio]
+                                  )
+                                )}
+                                models={models}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    )}
+
                     <FormField
                       control={form.control}
                       name='model_limits'

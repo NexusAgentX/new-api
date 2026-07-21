@@ -191,6 +191,49 @@ func GetPreferredModelOwnerChannelTypes(modelNames []string, groups []string) (m
 	return result, nil
 }
 
+func GetPreferredModelOwnerChannelTypesByModelGroups(modelNames []string, groupsByModel map[string][]string) (map[string]int, error) {
+	result := make(map[string]int)
+	modelNames = normalizeLookupValues(modelNames)
+	if len(modelNames) == 0 {
+		return result, nil
+	}
+
+	type row struct {
+		Model        string
+		BillingGroup string
+		ChannelType  int
+	}
+	var rows []row
+	if err := DB.Table("abilities").
+		Select("abilities.model as model, abilities."+commonGroupCol+" as billing_group, channels.type as channel_type").
+		Joins("JOIN channels ON abilities.channel_id = channels.id").
+		Where("abilities.model IN ? AND abilities.enabled = ? AND channels.status = ?", modelNames, true, common.ChannelStatusEnabled).
+		Order("COALESCE(abilities.priority, 0) DESC").
+		Order("abilities.weight DESC").
+		Order("abilities.channel_id ASC").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	allowedByModel := make(map[string]map[string]struct{}, len(groupsByModel))
+	for modelName, groups := range groupsByModel {
+		allowed := make(map[string]struct{}, len(groups))
+		for _, group := range groups {
+			allowed[group] = struct{}{}
+		}
+		allowedByModel[modelName] = allowed
+	}
+	for _, row := range rows {
+		if _, exists := result[row.Model]; exists {
+			continue
+		}
+		if _, allowed := allowedByModel[row.Model][row.BillingGroup]; allowed {
+			result[row.Model] = row.ChannelType
+		}
+	}
+	return result, nil
+}
+
 func SearchModels(keyword string, vendor string, status string, syncOfficial string, offset int, limit int) ([]*Model, int64, error) {
 	var models []*Model
 	db := DB.Model(&Model{})

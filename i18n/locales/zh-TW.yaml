@@ -49,6 +49,7 @@ token.exhausted: "該令牌額度已用盡 TokenStatusExhausted[sk-{{.Prefix}}**
 token.status_unavailable: "該令牌狀態不可用"
 token.db_error: "無效的令牌，資料庫查詢出錯，請聯繫管理員"
 token.request_customization_invalid: "請求自訂設定無效：{{.Error}}"
+token.auto_group_policy_invalid: "自動分組策略無效：{{.Error}}"
 
 # Redemption messages
 redemption.name_length: "兌換碼名稱長度必須在1-20之間"

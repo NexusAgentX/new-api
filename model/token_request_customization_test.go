@@ -66,3 +66,8 @@ func TestNormalizeTokenRequestCustomizationClearsEmptyMapping(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, normalized)
 }
+
+func TestNormalizeTokenRequestCustomizationRejectsAutoGroupPolicy(t *testing.T) {
+	_, err := NormalizeTokenRequestCustomization(`{"version":1,"auto_group_policy":{}}`)
+	require.Error(t, err)
+}

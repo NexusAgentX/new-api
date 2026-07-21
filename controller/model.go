@@ -228,6 +228,7 @@ func ListModels(c *gin.Context, modelType int) {
 		return
 	}
 	ownerGroups := groups.ownerGroups
+	autoGroupPolicy, _ := common.GetContextKeyType[*model.TokenAutoGroupPolicy](c, constant.ContextKeyTokenAutoGroupPolicy)
 	modelLimitEnable := common.GetContextKeyBool(c, constant.ContextKeyTokenModelLimitEnabled)
 	if modelLimitEnable {
 		s, ok := common.GetContextKey(c, constant.ContextKeyTokenModelLimit)
@@ -237,7 +238,14 @@ func ListModels(c *gin.Context, modelType int) {
 		} else {
 			tokenModelLimit = map[string]bool{}
 		}
-		for allowModel, _ := range tokenModelLimit {
+		allowedModels := make([]string, 0, len(tokenModelLimit))
+		for allowModel := range tokenModelLimit {
+			allowedModels = append(allowedModels, allowModel)
+		}
+		if groups.tokenGroup == "auto" && autoGroupPolicy != nil {
+			allowedModels = service.FilterUserModelsByAutoGroupPolicy(groups.userGroup, allowedModels, autoGroupPolicy)
+		}
+		for _, allowModel := range allowedModels {
 			if !acceptUnsetRatioModel {
 				if !helper.HasModelBillingConfig(allowModel) {
 					continue
@@ -247,6 +255,9 @@ func ListModels(c *gin.Context, modelType int) {
 		}
 	} else {
 		models := service.GetGroupsEnabledModels(ownerGroups)
+		if groups.tokenGroup == "auto" && autoGroupPolicy != nil {
+			models = service.FilterUserModelsByAutoGroupPolicy(groups.userGroup, models, autoGroupPolicy)
+		}
 		for _, modelName := range models {
 			if !acceptUnsetRatioModel {
 				if !helper.HasModelBillingConfig(modelName) {
@@ -283,7 +294,22 @@ func ListModels(c *gin.Context, modelType int) {
 
 	ownerByModel := map[string]string{}
 	if len(ownerGroups) > 0 {
-		ownerByModel = getPreferredModelOwners(userModelNames, ownerGroups)
+		if groups.tokenGroup == "auto" && autoGroupPolicy != nil {
+			allowedGroupsByModel := make(map[string][]string, len(userModelNames))
+			for _, modelName := range userModelNames {
+				allowedGroupsByModel[modelName] = service.GetUserAutoGroupsForModel(groups.userGroup, modelName, autoGroupPolicy)
+			}
+			channelTypes, ownerErr := model.GetPreferredModelOwnerChannelTypesByModelGroups(userModelNames, allowedGroupsByModel)
+			if ownerErr != nil {
+				common.SysLog(fmt.Sprintf("GetPreferredModelOwnerChannelTypesByModelGroups error: %v", ownerErr))
+			} else {
+				for modelName, channelType := range channelTypes {
+					ownerByModel[modelName] = channelOwnerName(channelType)
+				}
+			}
+		} else {
+			ownerByModel = getPreferredModelOwners(userModelNames, ownerGroups)
+		}
 	}
 	for alias, target := range aliasTargets {
 		ownerByModel[alias] = ownerByModel[target]
@@ -308,11 +334,17 @@ func ListModels(c *gin.Context, modelType int) {
 				Type:        "model",
 			}
 		}
+		firstID := ""
+		lastID := ""
+		if len(useranthropicModels) > 0 {
+			firstID = useranthropicModels[0].ID
+			lastID = useranthropicModels[len(useranthropicModels)-1].ID
+		}
 		c.JSON(200, gin.H{
 			"data":     useranthropicModels,
-			"first_id": useranthropicModels[0].ID,
+			"first_id": firstID,
 			"has_more": false,
-			"last_id":  useranthropicModels[len(useranthropicModels)-1].ID,
+			"last_id":  lastID,
 		})
 	case constant.ChannelTypeGemini:
 		userGeminiModels := make([]dto.GeminiModel, len(userOpenAiModels))

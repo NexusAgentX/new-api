@@ -49,6 +49,7 @@ token.exhausted: "该令牌额度已用尽 TokenStatusExhausted[sk-{{.Prefix}}**
 token.status_unavailable: "该令牌状态不可用"
 token.db_error: "无效的令牌，数据库查询出错，请联系管理员"
 token.request_customization_invalid: "请求自定义配置无效：{{.Error}}"
+token.auto_group_policy_invalid: "自动分组策略无效：{{.Error}}"
 
 # Redemption messages
 redemption.name_length: "兑换码名称长度必须在1-20之间"

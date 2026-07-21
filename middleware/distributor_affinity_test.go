@@ -19,6 +19,86 @@ import (
 	"gorm.io/gorm"
 )
 
+func TestAutoGroupPolicyRestrictsAffinityAndRetriesToFrozenCandidates(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	originalDB := model.DB
+	originalLogDB := model.LOG_DB
+	originalMainDBType := common.MainDatabaseType()
+	originalLogDBType := common.LogDatabaseType()
+	originalMemoryCacheEnabled := common.MemoryCacheEnabled
+	originalRedisEnabled := common.RedisEnabled
+	originalAutoGroups := setting.AutoGroups2JsonString()
+	originalUserUsableGroups := setting.UserUsableGroups2JSONString()
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	model.DB = db
+	model.LOG_DB = db
+	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
+	common.MemoryCacheEnabled = true
+	common.RedisEnabled = false
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}))
+	require.NoError(t, setting.UpdateAutoGroupsByJsonString(`["cheap","preferred","premium"]`))
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"cheap":"","preferred":"","premium":""}`))
+
+	t.Cleanup(func() {
+		require.NoError(t, setting.UpdateAutoGroupsByJsonString(originalAutoGroups))
+		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(originalUserUsableGroups))
+		model.DB = originalDB
+		model.LOG_DB = originalLogDB
+		common.SetDatabaseTypes(originalMainDBType, originalLogDBType)
+		common.MemoryCacheEnabled = originalMemoryCacheEnabled
+		common.RedisEnabled = originalRedisEnabled
+	})
+
+	priority := int64(0)
+	autoBan := 1
+	channels := []model.Channel{
+		{Id: 301, Type: constant.ChannelTypeOpenAI, Key: "cheap", Status: common.ChannelStatusEnabled, Name: "cheap", Models: "gpt-test", Group: "cheap", Priority: &priority, AutoBan: &autoBan},
+		{Id: 302, Type: constant.ChannelTypeOpenAI, Key: "preferred", Status: common.ChannelStatusEnabled, Name: "preferred", Models: "gpt-test", Group: "preferred", Priority: &priority, AutoBan: &autoBan},
+		{Id: 303, Type: constant.ChannelTypeOpenAI, Key: "premium", Status: common.ChannelStatusEnabled, Name: "premium", Models: "gpt-test", Group: "premium", Priority: &priority, AutoBan: &autoBan},
+	}
+	for _, channel := range channels {
+		require.NoError(t, db.Create(&channel).Error)
+		require.NoError(t, db.Create(&model.Ability{Group: channel.Group, Model: "gpt-test", ChannelId: channel.Id, Enabled: true, Priority: &priority}).Error)
+	}
+	model.InitChannelCache()
+
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "")
+	common.SetContextKey(ctx, constant.ContextKeyTokenAutoGroupPolicy, &model.TokenAutoGroupPolicy{
+		DefaultRule: &model.TokenAutoGroupRule{
+			Mode:   model.TokenAutoGroupModeAllowlist,
+			Groups: []string{"preferred", "premium"},
+		},
+	})
+	common.SetContextKey(ctx, constant.ContextKeyTokenCrossGroupRetry, true)
+	param := &service.RetryParam{
+		Ctx:         ctx,
+		TokenGroup:  "auto",
+		ModelName:   "gpt-test",
+		RequestPath: "/v1/responses",
+		Retry:       common.GetPointer(0),
+	}
+
+	first, firstGroup, err := service.CacheGetRandomSatisfiedChannel(param)
+	require.NoError(t, err)
+	require.Equal(t, 302, first.Id)
+	require.Equal(t, "preferred", firstGroup)
+	require.Equal(t, []string{"preferred", "premium"}, common.GetContextKeyStringSlice(ctx, constant.ContextKeyAutoGroupCandidates))
+
+	require.NoError(t, setting.UpdateAutoGroupsByJsonString(`["cheap","premium"]`))
+	require.NoError(t, db.Model(&model.Channel{}).Where("id = ?", first.Id).Update("status", common.ChannelStatusManuallyDisabled).Error)
+	model.InitChannelCache()
+	param.SetRetry(common.RetryTimes + 1)
+
+	second, secondGroup, err := service.CacheGetRandomSatisfiedChannel(param)
+	require.NoError(t, err)
+	require.Equal(t, 303, second.Id)
+	require.Equal(t, "premium", secondGroup)
+}
+
 func TestAutoGroupAffinityReturnsToRecoveredEarlierGroup(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

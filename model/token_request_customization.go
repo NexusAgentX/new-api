@@ -89,7 +89,7 @@ func ParseTokenRequestCustomization(raw string) (TokenRequestCustomization, erro
 		return true
 	})
 	if duplicateSource != "" {
-		return customization, fmt.Errorf("duplicate model mapping source %q", duplicateSource)
+		return customization, fmt.Errorf("duplicate request customization model mapping source %q", duplicateSource)
 	}
 
 	normalizedMapping := make(map[string]string, len(customization.ModelMapping))

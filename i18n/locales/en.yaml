@@ -48,6 +48,7 @@ token.exhausted: "This token quota is exhausted TokenStatusExhausted[sk-{{.Prefi
 token.status_unavailable: "This token status is unavailable"
 token.db_error: "Invalid token, database query error, please contact administrator"
 token.request_customization_invalid: "Invalid request customization: {{.Error}}"
+token.auto_group_policy_invalid: "Invalid auto-group policy: {{.Error}}"
 
 # Redemption messages
 redemption.name_length: "Redemption code name length must be between 1-20"
