@@ -469,6 +469,9 @@ func SetupContextForToken(c *gin.Context, token *model.Token, parts ...string) e
 	}
 	common.SetContextKey(c, constant.ContextKeyTokenGroup, token.Group)
 	common.SetContextKey(c, constant.ContextKeyTokenCrossGroupRetry, token.CrossGroupRetry)
+	if requestCustomization.AutoGroupPolicy != nil {
+		common.SetContextKey(c, constant.ContextKeyTokenAutoGroupPolicy, requestCustomization.AutoGroupPolicy)
+	}
 	if len(requestCustomization.ModelMapping) > 0 {
 		common.SetContextKey(c, constant.ContextKeyTokenModelMapping, requestCustomization.ModelMapping)
 	}

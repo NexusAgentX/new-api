@@ -3,6 +3,7 @@ package service
 import (
 	"strings"
 
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 )
@@ -62,4 +63,76 @@ func GetUserGroupRatio(userGroup, group string) float64 {
 		return ratio
 	}
 	return ratio_setting.GetGroupRatio(group)
+}
+
+// GetUserAutoGroupsForModel returns the ordered auto-group candidates after a
+// token policy is applied. The caller supplies the effective routed model.
+func GetUserAutoGroupsForModel(userGroup, modelName string, policy *model.TokenAutoGroupPolicy) []string {
+	groups := GetUserAutoGroup(userGroup)
+	if policy == nil {
+		return groups
+	}
+	rule, ok := policy.RuleForModel(modelName)
+	if !ok {
+		return groups
+	}
+
+	allowedGroups := make(map[string]struct{}, len(rule.Groups))
+	for _, group := range rule.Groups {
+		allowedGroups[group] = struct{}{}
+	}
+	filtered := make([]string, 0, len(groups))
+	for _, group := range groups {
+		if rule.Mode == model.TokenAutoGroupModeAllowlist {
+			if _, ok := allowedGroups[group]; !ok {
+				continue
+			}
+		} else if rule.Mode == model.TokenAutoGroupModeDenylist {
+			if _, ok := allowedGroups[group]; ok {
+				continue
+			}
+		}
+
+		ratio := GetUserGroupRatio(userGroup, group)
+		if rule.MinRatio != nil && ratio < *rule.MinRatio {
+			continue
+		}
+		if rule.MaxRatio != nil && ratio > *rule.MaxRatio {
+			continue
+		}
+		filtered = append(filtered, group)
+	}
+	return filtered
+}
+
+func FilterUserModelsByAutoGroupPolicy(userGroup string, modelNames []string, policy *model.TokenAutoGroupPolicy) []string {
+	if policy == nil || len(modelNames) == 0 {
+		return modelNames
+	}
+
+	candidateGroups := make(map[string]struct{})
+	for _, modelName := range modelNames {
+		for _, group := range GetUserAutoGroupsForModel(userGroup, modelName, policy) {
+			candidateGroups[group] = struct{}{}
+		}
+	}
+	modelsByGroup := make(map[string]map[string]struct{}, len(candidateGroups))
+	for group := range candidateGroups {
+		availableModels := make(map[string]struct{})
+		for _, modelName := range model.GetGroupEnabledModels(group) {
+			availableModels[modelName] = struct{}{}
+		}
+		modelsByGroup[group] = availableModels
+	}
+
+	filtered := make([]string, 0, len(modelNames))
+	for _, modelName := range modelNames {
+		for _, group := range GetUserAutoGroupsForModel(userGroup, modelName, policy) {
+			if _, ok := modelsByGroup[group][modelName]; ok {
+				filtered = append(filtered, modelName)
+				break
+			}
+		}
+	}
+	return filtered
 }

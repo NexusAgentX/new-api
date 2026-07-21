@@ -26,6 +26,7 @@ const (
 	ContextKeyTokenModelLimitEnabled ContextKey = "token_model_limit_enabled"
 	ContextKeyTokenModelLimit        ContextKey = "token_model_limit"
 	ContextKeyTokenCrossGroupRetry   ContextKey = "token_cross_group_retry"
+	ContextKeyTokenAutoGroupPolicy   ContextKey = "token_auto_group_policy"
 
 	ContextKeyTokenModelMapping        ContextKey = "token_model_mapping"
 	ContextKeyRequestCustomizationDone ContextKey = "request_customization_done"
@@ -52,6 +53,7 @@ const (
 	ContextKeyChannelKey               ContextKey = "channel_key"
 
 	ContextKeyAutoGroup           ContextKey = "auto_group"
+	ContextKeyAutoGroupCandidates ContextKey = "auto_group_candidates"
 	ContextKeyAutoGroupIndex      ContextKey = "auto_group_index"
 	ContextKeyAutoGroupRetryIndex ContextKey = "auto_group_retry_index"
 
