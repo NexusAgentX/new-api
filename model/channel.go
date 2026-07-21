@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/samber/lo"
@@ -988,6 +989,11 @@ func (channel *Channel) ValidateSettings() error {
 	if channel.Setting != nil && *channel.Setting != "" {
 		err := common.Unmarshal([]byte(*channel.Setting), channelParams)
 		if err != nil {
+			return err
+		}
+	}
+	if channelParams.FirstResponseTimeoutSeconds != nil && *channelParams.FirstResponseTimeoutSeconds != 0 {
+		if err := operation_setting.ValidateFirstResponseTimeoutSeconds(*channelParams.FirstResponseTimeoutSeconds); err != nil {
 			return err
 		}
 	}

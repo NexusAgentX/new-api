@@ -11,6 +11,7 @@ import (
 	"time"
 
 	constant2 "github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
@@ -213,6 +214,43 @@ func newDoRequestTestContext() (*gin.Context, *httptest.ResponseRecorder) {
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	return ctx, recorder
+}
+
+func TestEffectiveFirstResponseTimeoutSeconds(t *testing.T) {
+	setting := operation_setting.GetFirstResponseTimeoutSetting()
+	original := *setting
+	t.Cleanup(func() { *setting = original })
+	setting.TimeoutSeconds = 20
+
+	zero := 0
+	minimum := 1
+	maximum := 300
+	negative := -1
+	aboveMaximum := 301
+	tests := []struct {
+		name     string
+		override *int
+		want     int
+		valid    bool
+	}{
+		{name: "global fallback", want: 20, valid: true},
+		{name: "zero falls back", override: &zero, want: 20, valid: true},
+		{name: "minimum override", override: &minimum, want: 1, valid: true},
+		{name: "maximum override", override: &maximum, want: 300, valid: true},
+		{name: "negative override", override: &negative, valid: false},
+		{name: "above maximum override", override: &aboveMaximum, valid: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{
+				ChannelSetting: dto.ChannelSettings{FirstResponseTimeoutSeconds: test.override},
+			}}
+			got, valid := effectiveFirstResponseTimeoutSeconds(info)
+			require.Equal(t, test.valid, valid)
+			require.Equal(t, test.want, got)
+		})
+	}
 }
 
 func TestFirstResponseTimeoutCancelsStreamBeforeDownstreamCommit(t *testing.T) {

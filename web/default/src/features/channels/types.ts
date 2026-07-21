@@ -104,6 +104,7 @@ export interface ChannelSettings {
   pass_through_body_enabled?: boolean
   system_prompt?: string
   system_prompt_override?: boolean
+  first_response_timeout_seconds?: number
 }
 
 export interface ChannelOtherSettings {

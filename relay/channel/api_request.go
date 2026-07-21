@@ -482,7 +482,7 @@ func shouldMonitorFirstResponse(info *common.RelayInfo) bool {
 		return false
 	}
 	setting := operation_setting.GetFirstResponseTimeoutSetting()
-	if (!setting.RetryEnabled && !setting.DisableEnabled) || operation_setting.ValidateFirstResponseTimeoutSeconds(setting.TimeoutSeconds) != nil {
+	if !setting.RetryEnabled && !setting.DisableEnabled {
 		return false
 	}
 	switch info.RelayFormat {
@@ -491,6 +491,20 @@ func shouldMonitorFirstResponse(info *common.RelayInfo) bool {
 	default:
 		return false
 	}
+}
+
+func effectiveFirstResponseTimeoutSeconds(info *common.RelayInfo) (int, bool) {
+	timeoutSeconds := operation_setting.GetFirstResponseTimeoutSetting().TimeoutSeconds
+	if info != nil && info.ChannelMeta != nil {
+		override := info.ChannelSetting.FirstResponseTimeoutSeconds
+		if override != nil && *override != 0 {
+			timeoutSeconds = *override
+		}
+	}
+	if operation_setting.ValidateFirstResponseTimeoutSeconds(timeoutSeconds) != nil {
+		return 0, false
+	}
+	return timeoutSeconds, true
 }
 
 func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
@@ -507,11 +521,12 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 
 	monitoredFirstResponse := false
 	if shouldMonitorFirstResponse(info) {
-		setting := operation_setting.GetFirstResponseTimeoutSetting()
-		requestContext, monitored := info.BeginFirstResponseAttempt(c.Request.Context(), setting.TimeoutSeconds)
-		if monitored {
-			req = req.WithContext(requestContext)
-			monitoredFirstResponse = true
+		if timeoutSeconds, ok := effectiveFirstResponseTimeoutSeconds(info); ok {
+			requestContext, monitored := info.BeginFirstResponseAttempt(c.Request.Context(), timeoutSeconds)
+			if monitored {
+				req = req.WithContext(requestContext)
+				monitoredFirstResponse = true
+			}
 		}
 	}
 

@@ -300,6 +300,7 @@ const SENSITIVE_FORM_FIELDS = [
   'pass_through_body_enabled',
   'system_prompt',
   'system_prompt_override',
+  'first_response_timeout_seconds',
   'allow_service_tier',
   'disable_store',
   'allow_safety_identifier',
@@ -352,6 +353,7 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.thinking_to_content ||
     values.pass_through_body_enabled ||
     values.system_prompt_override ||
+    values.first_response_timeout_seconds ||
     values.claude_beta_query ||
     values.upstream_model_update_check_enabled ||
     values.upstream_model_update_auto_sync_enabled ||
@@ -766,6 +768,9 @@ export function ChannelMutateDrawer({
   const currentProxy = form.watch('proxy')
   const currentSystemPrompt = form.watch('system_prompt')
   const currentSystemPromptOverride = form.watch('system_prompt_override')
+  const currentFirstResponseTimeoutSeconds = form.watch(
+    'first_response_timeout_seconds'
+  )
   const currentAllowServiceTier = form.watch('allow_service_tier')
   const currentDisableStore = form.watch('disable_store')
   const currentAllowSafetyIdentifier = form.watch('allow_safety_identifier')
@@ -1048,7 +1053,8 @@ export function ChannelMutateDrawer({
     currentDisableTaskPollingSleep ||
     currentProxy?.trim() ||
     currentSystemPrompt?.trim() ||
-    currentSystemPromptOverride
+    currentSystemPromptOverride ||
+    currentFirstResponseTimeoutSeconds
   )
   let fieldPassthroughConfigured = false
   if (currentType === 1 || currentType === 57) {
@@ -4325,6 +4331,42 @@ export function ChannelMutateDrawer({
                                 )}
                               />
                             </div>
+
+                            <FormField
+                              control={form.control}
+                              name='first_response_timeout_seconds'
+                              render={({ field }) => (
+                                <FormItem className='max-w-sm'>
+                                  <FormLabel>
+                                    {t('First-response timeout (seconds)')}
+                                  </FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      type='number'
+                                      min={0}
+                                      max={300}
+                                      step={1}
+                                      inputMode='numeric'
+                                      {...field}
+                                      value={field.value ?? ''}
+                                      onChange={(event) =>
+                                        field.onChange(
+                                          event.target.value === ''
+                                            ? undefined
+                                            : event.target.valueAsNumber
+                                        )
+                                      }
+                                    />
+                                  </FormControl>
+                                  <FormDescription>
+                                    {t(
+                                      'Leave blank or enter 0 to inherit the global first-response timeout.'
+                                    )}
+                                  </FormDescription>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
 
                             <FormField
                               control={form.control}
