@@ -16,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/samber/lo"
 	"gorm.io/gorm"
@@ -1003,6 +1004,11 @@ func (channel *Channel) ValidateSettings() error {
 	}
 	if err := channelParams.ValidateHTTPTransport(); err != nil {
 		return err
+	}
+	if channelParams.FirstResponseTimeoutSeconds != nil && *channelParams.FirstResponseTimeoutSeconds != 0 {
+		if err := operation_setting.ValidateFirstResponseTimeoutSeconds(*channelParams.FirstResponseTimeoutSeconds); err != nil {
+			return err
+		}
 	}
 	channelOtherSettings := &dto.ChannelOtherSettings{}
 	if channel.OtherSettings != "" {
