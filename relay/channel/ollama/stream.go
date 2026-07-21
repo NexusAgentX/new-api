@@ -105,8 +105,12 @@ func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	var created = time.Now().Unix()
 	var toolCallIndex int
 	start := helper.GenerateStartEmptyResponse(responseId, created, model, nil)
-	if data, err := common.Marshal(start); err == nil {
-		_ = helper.StringData(c, string(data))
+	startSent := false
+	if !info.IsFirstResponseAttemptMonitored() {
+		if data, err := common.Marshal(start); err == nil {
+			_ = helper.StringData(c, string(data))
+			startSent = true
+		}
 	}
 
 	for scanner.Scan() {
@@ -114,6 +118,13 @@ func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
+		}
+		info.SetFirstResponseTime()
+		if !startSent {
+			if data, err := common.Marshal(start); err == nil {
+				_ = helper.StringData(c, string(data))
+				startSent = true
+			}
 		}
 		var chunk ollamaChatStreamChunk
 		if err := common.Unmarshal([]byte(line), &chunk); err != nil {
@@ -198,6 +209,9 @@ func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	}
 	if err := scanner.Err(); err != nil && err != io.EOF {
 		logger.LogError(c, "ollama stream scan error: "+err.Error())
+	}
+	if timeoutErr := info.FirstResponseTimeoutError(); timeoutErr != nil {
+		return nil, timeoutErr
 	}
 	return usage, nil
 }

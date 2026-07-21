@@ -658,6 +658,7 @@ export function aggregateChannelsByTag(
         created_time: 0,
         balance_updated_time: 0,
         models: '',
+        first_response_timeout_stats: undefined,
         children: [],
       } as TagRow
       tagMap.set(tag, tagRow)
@@ -680,6 +681,25 @@ export function aggregateChannelsByTag(
     tagRow.response_time =
       (tagRow.response_time * (childCount - 1) + channel.response_time) /
       childCount
+
+    const timeoutStats = channel.first_response_timeout_stats
+    if (timeoutStats) {
+      const aggregateStats = tagRow.first_response_timeout_stats ?? {
+        total_attempts: 0,
+        timeout_attempts: 0,
+        timeout_rate: 0,
+        window_minutes: timeoutStats.window_minutes,
+      }
+      aggregateStats.total_attempts += timeoutStats.total_attempts
+      aggregateStats.timeout_attempts += timeoutStats.timeout_attempts
+      aggregateStats.timeout_rate =
+        aggregateStats.total_attempts > 0
+          ? (aggregateStats.timeout_attempts * 100) /
+            aggregateStats.total_attempts
+          : 0
+      aggregateStats.window_minutes = timeoutStats.window_minutes
+      tagRow.first_response_timeout_stats = aggregateStats
+    }
 
     // Aggregate priority (same value or null if different)
     if (tagRow.priority === -1) {

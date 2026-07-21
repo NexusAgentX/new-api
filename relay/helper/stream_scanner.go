@@ -16,6 +16,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/types"
 
 	"github.com/bytedance/gopkg/util/gopool"
 
@@ -74,10 +75,10 @@ func ExtendWriteDeadline(c *gin.Context) {
 	_ = http.NewResponseController(c.Writer).SetWriteDeadline(time.Now().Add(streamWriteTimeout))
 }
 
-func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo, dataHandler func(data string, sr *StreamResult)) {
+func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo, dataHandler func(data string, sr *StreamResult)) *types.NewAPIError {
 
 	if resp == nil || dataHandler == nil {
-		return
+		return nil
 	}
 
 	// 无条件新建 StreamStatus
@@ -168,6 +169,9 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			for {
 				select {
 				case <-pingTicker.C:
+					if !info.CanSendStreamPing() {
+						continue
+					}
 					var err error
 					func() {
 						writeMutex.Lock()
@@ -283,7 +287,11 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 		if err := scanner.Err(); err != nil {
 			if err != io.EOF {
 				logger.LogError(c, "scanner error: "+err.Error())
-				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonScannerErr, err)
+				if info.IsFirstResponseAttemptTimedOut() {
+					info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonFirstResponseTimeout, err)
+				} else {
+					info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonScannerErr, err)
+				}
 			}
 		}
 		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonEOF, nil)
@@ -302,9 +310,15 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	}
 
 	cleanup()
+	if timeoutErr := info.FirstResponseTimeoutError(); timeoutErr != nil {
+		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonFirstResponseTimeout, timeoutErr)
+		logger.LogError(c, fmt.Sprintf("stream ended: %s, received=%d", info.StreamStatus.Summary(), info.ReceivedResponseCount))
+		return timeoutErr
+	}
 	if info.StreamStatus.IsNormalEnd() && !info.StreamStatus.HasErrors() {
 		logger.LogInfo(c, fmt.Sprintf("stream ended: %s", info.StreamStatus.Summary()))
 	} else {
 		logger.LogError(c, fmt.Sprintf("stream ended: %s, received=%d", info.StreamStatus.Summary(), info.ReceivedResponseCount))
 	}
+	return nil
 }

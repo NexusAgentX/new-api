@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
@@ -111,20 +110,16 @@ func cohereStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		stopChan <- true
 	}()
 	helper.SetEventStreamHeaders(c)
-	isFirst := true
-	c.Stream(func(w io.Writer) bool {
+	for {
 		select {
 		case data := <-dataChan:
-			if isFirst {
-				isFirst = false
-				info.FirstResponseTime = time.Now()
-			}
+			info.SetFirstResponseTime()
 			data = strings.TrimSuffix(data, "\r")
 			var cohereResp CohereResponse
 			err := json.Unmarshal([]byte(data), &cohereResp)
 			if err != nil {
 				common.SysLog("error unmarshalling stream response: " + err.Error())
-				return true
+				continue
 			}
 			var openaiResp dto.ChatCompletionsStreamResponse
 			openaiResp.Id = responseId
@@ -159,15 +154,24 @@ func cohereStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 			jsonStr, err := json.Marshal(openaiResp)
 			if err != nil {
 				common.SysLog("error marshalling stream response: " + err.Error())
-				return true
+				continue
 			}
 			c.Render(-1, common.CustomEvent{Data: "data: " + string(jsonStr)})
-			return true
+			_ = helper.FlushWriter(c)
 		case <-stopChan:
-			c.Render(-1, common.CustomEvent{Data: "data: [DONE]"})
-			return false
+			if !info.IsFirstResponseAttemptTimedOut() {
+				c.Render(-1, common.CustomEvent{Data: "data: [DONE]"})
+				_ = helper.FlushWriter(c)
+			}
+			goto streamEnded
 		}
-	})
+	}
+
+streamEnded:
+	if timeoutErr := info.FirstResponseTimeoutError(); timeoutErr != nil {
+		service.CloseResponseBodyGracefully(resp)
+		return nil, timeoutErr
+	}
 	if usage.PromptTokens == 0 {
 		usage = service.ResponseText2Usage(c, responseText, info.UpstreamModelName, info.GetEstimatePromptTokens())
 	}

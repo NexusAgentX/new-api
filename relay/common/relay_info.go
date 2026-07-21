@@ -1,11 +1,14 @@
 package common
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -185,6 +188,9 @@ type RelayInfo struct {
 
 	StreamStatus *StreamStatus
 
+	firstResponseAttemptMu sync.Mutex
+	firstResponseAttempt   *FirstResponseAttempt
+
 	ThinkingContentInfo
 	TokenCountMeta
 	*ClaudeConvertInfo
@@ -192,6 +198,21 @@ type RelayInfo struct {
 	*ResponsesUsageInfo
 	*ChannelMeta
 	*TaskRelayInfo
+}
+
+type FirstResponseAttempt struct {
+	cancel         context.CancelFunc
+	timer          *time.Timer
+	finished       atomic.Bool
+	received       atomic.Bool
+	timedOut       atomic.Bool
+	timeoutSeconds int
+}
+
+type FirstResponseAttemptResult struct {
+	Monitored      bool
+	TimedOut       bool
+	TimeoutSeconds int
 }
 
 func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
@@ -687,9 +708,115 @@ func (info *RelayInfo) GetEstimatePromptTokens() int {
 }
 
 func (info *RelayInfo) SetFirstResponseTime() {
+	info.MarkFirstResponseReceived()
 	if info.isFirstResponse {
 		info.FirstResponseTime = time.Now()
 		info.isFirstResponse = false
+	}
+}
+
+func (info *RelayInfo) BeginFirstResponseAttempt(parent context.Context, timeoutSeconds int) (context.Context, bool) {
+	if info == nil || parent == nil || timeoutSeconds <= 0 {
+		return parent, false
+	}
+
+	info.EndFirstResponseAttempt()
+	ctx, cancel := context.WithCancel(parent)
+	attempt := &FirstResponseAttempt{
+		cancel:         cancel,
+		timeoutSeconds: timeoutSeconds,
+	}
+	info.firstResponseAttemptMu.Lock()
+	info.firstResponseAttempt = attempt
+	info.firstResponseAttemptMu.Unlock()
+
+	attempt.timer = time.AfterFunc(time.Duration(timeoutSeconds)*time.Second, func() {
+		if attempt.finished.CompareAndSwap(false, true) {
+			attempt.timedOut.Store(true)
+			attempt.cancel()
+		}
+	})
+	return ctx, true
+}
+
+func (info *RelayInfo) MarkFirstResponseReceived() {
+	if info == nil {
+		return
+	}
+	info.firstResponseAttemptMu.Lock()
+	attempt := info.firstResponseAttempt
+	info.firstResponseAttemptMu.Unlock()
+	if attempt != nil && attempt.finished.CompareAndSwap(false, true) {
+		attempt.received.Store(true)
+		attempt.timer.Stop()
+	}
+}
+
+func (info *RelayInfo) CompleteFirstResponseAttempt() {
+	info.MarkFirstResponseReceived()
+}
+
+func (info *RelayInfo) IsFirstResponseAttemptMonitored() bool {
+	if info == nil {
+		return false
+	}
+	info.firstResponseAttemptMu.Lock()
+	defer info.firstResponseAttemptMu.Unlock()
+	return info.firstResponseAttempt != nil
+}
+
+func (info *RelayInfo) CanSendStreamPing() bool {
+	if info == nil {
+		return true
+	}
+	info.firstResponseAttemptMu.Lock()
+	attempt := info.firstResponseAttempt
+	info.firstResponseAttemptMu.Unlock()
+	return attempt == nil || attempt.received.Load()
+}
+
+func (info *RelayInfo) IsFirstResponseAttemptTimedOut() bool {
+	if info == nil {
+		return false
+	}
+	info.firstResponseAttemptMu.Lock()
+	attempt := info.firstResponseAttempt
+	info.firstResponseAttemptMu.Unlock()
+	return attempt != nil && attempt.timedOut.Load()
+}
+
+func (info *RelayInfo) FirstResponseTimeoutError() *types.NewAPIError {
+	if info == nil {
+		return nil
+	}
+	info.firstResponseAttemptMu.Lock()
+	attempt := info.firstResponseAttempt
+	info.firstResponseAttemptMu.Unlock()
+	if attempt == nil || !attempt.timedOut.Load() {
+		return nil
+	}
+	return types.NewUpstreamFirstResponseTimeoutError(attempt.timeoutSeconds)
+}
+
+func (info *RelayInfo) EndFirstResponseAttempt() FirstResponseAttemptResult {
+	if info == nil {
+		return FirstResponseAttemptResult{}
+	}
+	info.firstResponseAttemptMu.Lock()
+	attempt := info.firstResponseAttempt
+	info.firstResponseAttempt = nil
+	info.firstResponseAttemptMu.Unlock()
+	if attempt == nil {
+		return FirstResponseAttemptResult{}
+	}
+	if attempt.finished.CompareAndSwap(false, true) {
+		attempt.timer.Stop()
+	}
+	attempt.cancel()
+	return FirstResponseAttemptResult{
+		Monitored:      true,
+		TimedOut:       attempt.timedOut.Load(),
+		TimeoutSeconds: attempt.timeoutSeconds,
 	}
 }
 

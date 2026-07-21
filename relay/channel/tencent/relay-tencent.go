@@ -111,6 +111,7 @@ func tencentStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *htt
 			continue
 		}
 
+		info.SetFirstResponseTime()
 		response := streamResponseTencent2OpenAI(&tencentResponse)
 		if len(response.Choices) != 0 {
 			responseText += response.Choices[0].Delta.GetContentString()
@@ -124,6 +125,10 @@ func tencentStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *htt
 
 	if err := scanner.Err(); err != nil {
 		common.SysLog("error reading stream: " + err.Error())
+	}
+	if timeoutErr := info.FirstResponseTimeoutError(); timeoutErr != nil {
+		service.CloseResponseBodyGracefully(resp)
+		return nil, timeoutErr
 	}
 
 	helper.Done(c)
