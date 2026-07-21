@@ -25,6 +25,7 @@ import { PaymentSettingsSection } from '../integrations/payment-settings-section
 import { RatioSettingsCard } from '../models/ratio-settings-card'
 import type { BillingSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
+import { OperatingCostsSection } from './operating-costs-section'
 
 const getModelDefaults = (settings: BillingSettings) => ({
   ModelPrice: settings.ModelPrice,
@@ -98,6 +99,18 @@ const BILLING_SECTIONS = [
             custom_currency_exchange_rate:
               settings['general_setting.custom_currency_exchange_rate'] ?? 1,
           },
+        }}
+      />
+    ),
+  },
+  {
+    id: 'operating-costs',
+    titleKey: 'Operating Costs',
+    build: (settings: BillingSettings) => (
+      <OperatingCostsSection
+        defaultValues={{
+          infrastructureDailyCostUSD:
+            settings['finance_setting.infrastructure_daily_cost_usd'],
         }}
       />
     ),

@@ -2,9 +2,9 @@
 Copyright (C) 2023-2026 QuantumNous
 
 This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as published by
-the Free Software Foundation, either version 3 of the License, or (at your option)
-any later version.
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -133,11 +133,11 @@ export function FinanceTrend(props: {
         >
           <SelectTrigger className='ml-auto h-8 w-full sm:w-56'>
             <SelectValue>
-              {selectedChannel?.channel_name ?? t('All Channels')}
+              {selectedChannel?.channel_name ?? t('Overall')}
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value='all'>{t('All Channels')}</SelectItem>
+            <SelectItem value='all'>{t('Overall')}</SelectItem>
             {props.channels.map((channel) => (
               <SelectItem
                 key={channel.channel_id}

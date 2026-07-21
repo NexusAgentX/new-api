@@ -106,6 +106,7 @@ const defaultBillingSettings: BillingSettings = {
   'checkin_setting.enabled': false,
   'checkin_setting.min_quota': 1000,
   'checkin_setting.max_quota': 10000,
+  'finance_setting.infrastructure_daily_cost_usd': 0,
 }
 
 export function BillingSettings() {
