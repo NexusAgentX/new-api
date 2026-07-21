@@ -171,6 +171,11 @@ func AddToken(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	token.RequestCustomization, err = model.NormalizeTokenRequestCustomization(token.RequestCustomization)
+	if err != nil {
+		common.ApiErrorI18n(c, i18n.MsgTokenRequestCustomizationInvalid, map[string]any{"Error": err.Error()})
+		return
+	}
 	if len(token.Name) > 50 {
 		common.ApiErrorI18n(c, i18n.MsgTokenNameTooLong)
 		return
@@ -221,6 +226,8 @@ func AddToken(c *gin.Context) {
 		AllowIps:           token.AllowIps,
 		Group:              token.Group,
 		CrossGroupRetry:    token.CrossGroupRetry,
+
+		RequestCustomization: token.RequestCustomization,
 	}
 	err = cleanToken.Insert()
 	if err != nil {
@@ -255,6 +262,13 @@ func UpdateToken(c *gin.Context) {
 	if err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	if statusOnly == "" {
+		token.RequestCustomization, err = model.NormalizeTokenRequestCustomization(token.RequestCustomization)
+		if err != nil {
+			common.ApiErrorI18n(c, i18n.MsgTokenRequestCustomizationInvalid, map[string]any{"Error": err.Error()})
+			return
+		}
 	}
 	if len(token.Name) > 50 {
 		common.ApiErrorI18n(c, i18n.MsgTokenNameTooLong)
@@ -299,6 +313,7 @@ func UpdateToken(c *gin.Context) {
 		cleanToken.AllowIps = token.AllowIps
 		cleanToken.Group = token.Group
 		cleanToken.CrossGroupRetry = token.CrossGroupRetry
+		cleanToken.RequestCustomization = token.RequestCustomization
 	}
 	err = cleanToken.Update()
 	if err != nil {

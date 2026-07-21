@@ -51,6 +51,7 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) model.Chann
 		other["is_model_mapped"] = true
 		other["upstream_model_name"] = info.UpstreamModelName
 	}
+	AppendRequestCustomizationInfo(c, info, other)
 	attachQuotaSaturation(c, info, other)
 	channelFinance := model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
 		ChannelId:                info.ChannelId,
@@ -145,6 +146,13 @@ func taskBillingOther(task *model.Task) map[string]interface{} {
 		}
 	}
 	props := task.Properties
+	appendRequestCustomizationModels(
+		other,
+		props.RequestCustomizationConfigured,
+		props.RequestModelName != "" && props.RequestModelName != props.OriginModelName,
+		props.RequestModelName,
+		props.OriginModelName,
+	)
 	if props.UpstreamModelName != "" && props.UpstreamModelName != props.OriginModelName {
 		other["is_model_mapped"] = true
 		other["upstream_model_name"] = props.UpstreamModelName
