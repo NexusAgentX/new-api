@@ -272,6 +272,16 @@ func UpdateOption(c *gin.Context) {
 			})
 			return
 		}
+	case "finance_setting.infrastructure_daily_cost_usd":
+		value, parseErr := strconv.ParseFloat(option.Value.(string), 64)
+		if parseErr != nil {
+			common.ApiErrorMsg(c, "invalid infrastructure daily cost")
+			return
+		}
+		if err = operation_setting.ValidateInfrastructureDailyCostUSD(value); err != nil {
+			common.ApiErrorMsg(c, err.Error())
+			return
+		}
 	case "ImageRatio":
 		err = ratio_setting.UpdateImageRatioByJSONString(option.Value.(string))
 		if err != nil {

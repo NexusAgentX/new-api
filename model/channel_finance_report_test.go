@@ -4,7 +4,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,13 +27,18 @@ func TestChannelFinancePeriodStartUsesNaturalWeekAndMonth(t *testing.T) {
 	)
 }
 
-func TestChannelFinanceReportCombinesFrozenUsageCostWithCurrentFixedCost(t *testing.T) {
+func TestChannelFinanceReportCombinesChannelInfrastructureAndCheckinCosts(t *testing.T) {
 	location, err := time.LoadLocation("Asia/Shanghai")
 	require.NoError(t, err)
 	start := time.Date(2030, 1, 1, 0, 0, 0, 0, location)
 	end := time.Date(2030, 1, 2, 23, 59, 59, 0, location)
 	usageChannelID := 920001
 	fixedChannelID := 920002
+	checkinUserIDs := []int{930001, 930002}
+	originalQuotaPerUnit := common.QuotaPerUnit
+	originalInfrastructureCost := operation_setting.GetFinanceSetting().InfrastructureDailyCostUSD
+	common.QuotaPerUnit = 500_000
+	operation_setting.GetFinanceSetting().InfrastructureDailyCostUSD = 3
 
 	require.NoError(t, DB.Create(&Channel{
 		Id:             usageChannelID,
@@ -46,9 +53,26 @@ func TestChannelFinanceReportCombinesFrozenUsageCostWithCurrentFixedCost(t *test
 		FixedDailyCostUSD: 10,
 	}).Error)
 	t.Cleanup(func() {
+		common.QuotaPerUnit = originalQuotaPerUnit
+		operation_setting.GetFinanceSetting().InfrastructureDailyCostUSD = originalInfrastructureCost
 		LOG_DB.Where("channel_id IN ?", []int{usageChannelID, fixedChannelID}).Delete(&Log{})
+		DB.Where("user_id IN ?", checkinUserIDs).Delete(&Checkin{})
 		DB.Delete(&Channel{}, []int{usageChannelID, fixedChannelID})
 	})
+	require.NoError(t, DB.Create(&[]Checkin{
+		{
+			UserId:       checkinUserIDs[0],
+			CheckinDate:  "2030-01-01",
+			QuotaAwarded: 500_000,
+			CreatedAt:    start.Add(9 * time.Hour).Unix(),
+		},
+		{
+			UserId:       checkinUserIDs[1],
+			CheckinDate:  "2030-01-02",
+			QuotaAwarded: 250_000,
+			CreatedAt:    start.AddDate(0, 0, 1).Add(9 * time.Hour).Unix(),
+		},
+	}).Error)
 
 	revenueFive := 5.0
 	costTwo := 2.0
@@ -84,13 +108,22 @@ func TestChannelFinanceReportCombinesFrozenUsageCostWithCurrentFixedCost(t *test
 	assert.InDelta(t, 7, report.Summary.RevenueUSD, 1e-12)
 	assert.InDelta(t, 1.6, report.Summary.VariableCostUSD, 1e-12)
 	assert.InDelta(t, 20, report.Summary.FixedCostUSD, 1e-12)
-	assert.InDelta(t, 21.6, report.Summary.CostUSD, 1e-12)
-	assert.InDelta(t, -14.6, report.Summary.ProfitUSD, 1e-12)
+	assert.InDelta(t, 21.6, report.Summary.ChannelCostUSD, 1e-12)
+	assert.InDelta(t, 6, report.Summary.InfrastructureCostUSD, 1e-12)
+	assert.InDelta(t, 1.5, report.Summary.CheckinCostUSD, 1e-12)
+	assert.InDelta(t, 29.1, report.Summary.CostUSD, 1e-12)
+	assert.InDelta(t, -22.1, report.Summary.ProfitUSD, 1e-12)
 	assert.EqualValues(t, 2, report.Summary.RequestCount)
 	require.Len(t, report.Periods, 2)
+	assert.InDelta(t, 3, report.Periods[0].InfrastructureCostUSD, 1e-12)
+	assert.InDelta(t, 1, report.Periods[0].CheckinCostUSD, 1e-12)
+	assert.InDelta(t, 0.5, report.Periods[1].CheckinCostUSD, 1e-12)
 	require.Len(t, report.Channels, 2)
 	for _, channel := range report.Channels {
 		assert.False(t, channel.Deleted)
+		assert.Zero(t, channel.InfrastructureCostUSD)
+		assert.Zero(t, channel.CheckinCostUSD)
+		assert.InDelta(t, channel.ChannelCostUSD, channel.CostUSD, 1e-12)
 		require.Len(t, channel.Periods, 2)
 	}
 
@@ -99,6 +132,8 @@ func TestChannelFinanceReportCombinesFrozenUsageCostWithCurrentFixedCost(t *test
 	require.NoError(t, err)
 	assert.InDelta(t, 30, recalculated.Summary.FixedCostUSD, 1e-12)
 	assert.InDelta(t, 1.6, recalculated.Summary.VariableCostUSD, 1e-12)
+	assert.InDelta(t, 31.6, recalculated.Summary.ChannelCostUSD, 1e-12)
+	assert.InDelta(t, 39.1, recalculated.Summary.CostUSD, 1e-12)
 }
 
 func TestChannelFinanceReportMarksUnavailableRequestFinanceData(t *testing.T) {

@@ -2,9 +2,9 @@
 Copyright (C) 2023-2026 QuantumNous
 
 This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as published by
-the Free Software Foundation, either version 3 of the License, or (at your option)
-any later version.
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -19,8 +19,10 @@ For commercial licensing, please contact support@quantumnous.com
 import {
   ArrowDownRight,
   ArrowUpRight,
+  CalendarCheck,
   CircleDollarSign,
   Landmark,
+  ServerCog,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
@@ -79,13 +81,13 @@ export function FinanceSummary(props: { summary?: ChannelFinanceSummary }) {
           tone='info'
         />
         <SummaryMetric
-          label={t('Channel Cost')}
+          label={t('Total Cost')}
           value={formatMoney(summary?.cost_usd ?? 0)}
           icon={ArrowDownRight}
           tone='warning'
         />
         <SummaryMetric
-          label={t('Gross Profit')}
+          label={t('Net Profit')}
           value={formatMoney(profit)}
           icon={ArrowUpRight}
           tone={profit >= 0 ? 'success' : 'destructive'}
@@ -96,12 +98,32 @@ export function FinanceSummary(props: { summary?: ChannelFinanceSummary }) {
           }
         />
         <SummaryMetric
-          label={t('Gross Margin')}
+          label={t('Net Margin')}
           value={formatChannelFinanceMargin(
             summary?.margin ?? 0,
             summary?.revenue_usd ?? 0
           )}
           icon={CircleDollarSign}
+          tone='success'
+        />
+      </div>
+      <div className='divide-border/60 grid grid-cols-1 divide-y border-t sm:grid-cols-3 sm:divide-x sm:divide-y-0'>
+        <SummaryMetric
+          label={t('Channel Cost')}
+          value={formatMoney(summary?.channel_cost_usd ?? 0)}
+          icon={ArrowDownRight}
+          tone='warning'
+        />
+        <SummaryMetric
+          label={t('Infrastructure Cost')}
+          value={formatMoney(summary?.infrastructure_cost_usd ?? 0)}
+          icon={ServerCog}
+          tone='info'
+        />
+        <SummaryMetric
+          label={t('Check-in Cost')}
+          value={formatMoney(summary?.checkin_cost_usd ?? 0)}
+          icon={CalendarCheck}
           tone='success'
         />
       </div>
