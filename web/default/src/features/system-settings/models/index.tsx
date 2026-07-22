@@ -77,6 +77,7 @@ const defaultModelSettings: ModelSettings = {
   'first_response_timeout_setting.disable_enabled': false,
   'first_response_timeout_setting.disable_window_minutes': 5,
   'first_response_timeout_setting.disable_rate': 30,
+  'first_response_timeout_setting.disable_min_timeout_attempts': 2,
   'monitor_setting.auto_test_channel_enabled': false,
   'monitor_setting.auto_test_channel_minutes': 10,
   'monitor_setting.channel_test_mode': 'scheduled_all',

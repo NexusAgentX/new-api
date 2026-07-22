@@ -56,6 +56,30 @@ func TestFirstResponseTimeoutRollingWindowCountsAttempts(t *testing.T) {
 	assert.Equal(t, int64(1), counts.Timeouts)
 }
 
+func TestReachedFirstResponseTimeoutDisableThreshold(t *testing.T) {
+	setting := &operation_setting.FirstResponseTimeoutSetting{
+		DisableRate:               30,
+		DisableMinTimeoutAttempts: 2,
+	}
+
+	tests := []struct {
+		name   string
+		counts firstResponseTimeoutCounts
+		want   bool
+	}{
+		{name: "single timeout does not meet minimum", counts: firstResponseTimeoutCounts{Total: 1, Timeouts: 1}, want: false},
+		{name: "two timeouts meet rate and minimum", counts: firstResponseTimeoutCounts{Total: 2, Timeouts: 2}, want: true},
+		{name: "two timeouts below rate", counts: firstResponseTimeoutCounts{Total: 7, Timeouts: 2}, want: false},
+		{name: "three of ten meets rate", counts: firstResponseTimeoutCounts{Total: 10, Timeouts: 3}, want: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.want, reachedFirstResponseTimeoutDisableThreshold(test.counts, setting))
+		})
+	}
+}
+
 func TestGetFirstResponseTimeoutCountsMemoryReturnsPerChannelWindow(t *testing.T) {
 	resetFirstResponseTimeoutMemory(t)
 

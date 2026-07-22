@@ -81,6 +81,7 @@ const routingReliabilitySchema = z
       disable_enabled: z.boolean(),
       disable_window_minutes: z.coerce.number().int().min(1).max(60),
       disable_rate: z.coerce.number().gt(0).max(100),
+      disable_min_timeout_attempts: z.coerce.number().int().min(1).max(100),
     }),
     monitor_setting: z.object({
       auto_test_channel_enabled: z.boolean(),
@@ -136,6 +137,7 @@ type RoutingReliabilitySectionProps = {
     'first_response_timeout_setting.disable_enabled': boolean
     'first_response_timeout_setting.disable_window_minutes': number
     'first_response_timeout_setting.disable_rate': number
+    'first_response_timeout_setting.disable_min_timeout_attempts': number
     'monitor_setting.auto_test_channel_enabled': boolean
     'monitor_setting.auto_test_channel_minutes': number
     'monitor_setting.channel_test_mode': ChannelTestMode
@@ -159,6 +161,7 @@ type NormalizedRoutingReliabilityValues = {
   'first_response_timeout_setting.disable_enabled': boolean
   'first_response_timeout_setting.disable_window_minutes': number
   'first_response_timeout_setting.disable_rate': number
+  'first_response_timeout_setting.disable_min_timeout_attempts': number
   'monitor_setting.auto_test_channel_enabled': boolean
   'monitor_setting.auto_test_channel_minutes': number
   'monitor_setting.channel_test_mode': ChannelTestMode
@@ -190,6 +193,9 @@ const buildFormDefaults = (
     disable_window_minutes:
       defaults['first_response_timeout_setting.disable_window_minutes'] ?? 5,
     disable_rate: defaults['first_response_timeout_setting.disable_rate'] ?? 30,
+    disable_min_timeout_attempts:
+      defaults['first_response_timeout_setting.disable_min_timeout_attempts'] ??
+      2,
   },
   monitor_setting: {
     auto_test_channel_enabled:
@@ -228,6 +234,9 @@ const normalizeDefaults = (
     defaults['first_response_timeout_setting.disable_window_minutes'] ?? 5,
   'first_response_timeout_setting.disable_rate':
     defaults['first_response_timeout_setting.disable_rate'] ?? 30,
+  'first_response_timeout_setting.disable_min_timeout_attempts':
+    defaults['first_response_timeout_setting.disable_min_timeout_attempts'] ??
+    2,
   'monitor_setting.auto_test_channel_enabled':
     defaults['monitor_setting.auto_test_channel_enabled'],
   'monitor_setting.auto_test_channel_minutes':
@@ -263,6 +272,8 @@ const normalizeFormValues = (
     values.first_response_timeout_setting.disable_window_minutes,
   'first_response_timeout_setting.disable_rate':
     values.first_response_timeout_setting.disable_rate,
+  'first_response_timeout_setting.disable_min_timeout_attempts':
+    values.first_response_timeout_setting.disable_min_timeout_attempts,
   'monitor_setting.auto_test_channel_enabled':
     values.monitor_setting.auto_test_channel_enabled,
   'monitor_setting.auto_test_channel_minutes':
@@ -749,6 +760,31 @@ export function RoutingReliabilitySection({
                     <FormDescription>
                       {t(
                         'Disable the channel when timed-out attempts reach this percentage.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='first_response_timeout_setting.disable_min_timeout_attempts'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Minimum timeout attempts')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min={1}
+                        max={100}
+                        step={1}
+                        {...safeNumberFieldProps(field)}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Require this many timed-out attempts within the rate window before disabling the channel.'
                       )}
                     </FormDescription>
                     <FormMessage />

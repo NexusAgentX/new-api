@@ -7,26 +7,30 @@ import (
 )
 
 const (
-	MinFirstResponseTimeoutSeconds       = 1
-	MaxFirstResponseTimeoutSeconds       = 300
-	MinFirstResponseDisableWindowMinutes = 1
-	MaxFirstResponseDisableWindowMinutes = 60
+	MinFirstResponseTimeoutSeconds            = 1
+	MaxFirstResponseTimeoutSeconds            = 300
+	MinFirstResponseDisableWindowMinutes      = 1
+	MaxFirstResponseDisableWindowMinutes      = 60
+	MinFirstResponseDisableMinTimeoutAttempts = 1
+	MaxFirstResponseDisableMinTimeoutAttempts = 100
 )
 
 type FirstResponseTimeoutSetting struct {
-	RetryEnabled         bool    `json:"retry_enabled"`
-	TimeoutSeconds       int     `json:"timeout_seconds"`
-	DisableEnabled       bool    `json:"disable_enabled"`
-	DisableWindowMinutes int     `json:"disable_window_minutes"`
-	DisableRate          float64 `json:"disable_rate"`
+	RetryEnabled              bool    `json:"retry_enabled"`
+	TimeoutSeconds            int     `json:"timeout_seconds"`
+	DisableEnabled            bool    `json:"disable_enabled"`
+	DisableWindowMinutes      int     `json:"disable_window_minutes"`
+	DisableRate               float64 `json:"disable_rate"`
+	DisableMinTimeoutAttempts int     `json:"disable_min_timeout_attempts"`
 }
 
 var firstResponseTimeoutSetting = FirstResponseTimeoutSetting{
-	RetryEnabled:         false,
-	TimeoutSeconds:       20,
-	DisableEnabled:       false,
-	DisableWindowMinutes: 5,
-	DisableRate:          30,
+	RetryEnabled:              false,
+	TimeoutSeconds:            20,
+	DisableEnabled:            false,
+	DisableWindowMinutes:      5,
+	DisableRate:               30,
+	DisableMinTimeoutAttempts: 2,
 }
 
 func init() {
@@ -54,6 +58,13 @@ func ValidateFirstResponseDisableWindowMinutes(minutes int) error {
 func ValidateFirstResponseDisableRate(rate float64) error {
 	if rate <= 0 || rate > 100 {
 		return fmt.Errorf("first response disable rate must be greater than 0 and at most 100")
+	}
+	return nil
+}
+
+func ValidateFirstResponseDisableMinTimeoutAttempts(attempts int) error {
+	if attempts < MinFirstResponseDisableMinTimeoutAttempts || attempts > MaxFirstResponseDisableMinTimeoutAttempts {
+		return fmt.Errorf("minimum first response timeout attempts must be between %d and %d", MinFirstResponseDisableMinTimeoutAttempts, MaxFirstResponseDisableMinTimeoutAttempts)
 	}
 	return nil
 }

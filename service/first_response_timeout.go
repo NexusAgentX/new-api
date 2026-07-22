@@ -242,9 +242,19 @@ func recordFirstResponseAttempt(channelID int, timedOut bool, windowMinutes int,
 	return recordFirstResponseAttemptMemory(channelID, timedOut, windowMinutes, now)
 }
 
+func reachedFirstResponseTimeoutDisableThreshold(counts firstResponseTimeoutCounts, setting *operation_setting.FirstResponseTimeoutSetting) bool {
+	if counts.Total <= 0 || counts.Timeouts < int64(setting.DisableMinTimeoutAttempts) {
+		return false
+	}
+	rate := float64(counts.Timeouts) * 100 / float64(counts.Total)
+	return rate >= setting.DisableRate
+}
+
 func RecordFirstResponseAttempt(channelError types.ChannelError, timedOut bool) {
 	setting := operation_setting.GetFirstResponseTimeoutSetting()
-	if channelError.ChannelId <= 0 || operation_setting.ValidateFirstResponseDisableWindowMinutes(setting.DisableWindowMinutes) != nil {
+	if channelError.ChannelId <= 0 ||
+		operation_setting.ValidateFirstResponseDisableWindowMinutes(setting.DisableWindowMinutes) != nil ||
+		operation_setting.ValidateFirstResponseDisableMinTimeoutAttempts(setting.DisableMinTimeoutAttempts) != nil {
 		return
 	}
 
@@ -254,10 +264,10 @@ func RecordFirstResponseAttempt(channelError types.ChannelError, timedOut bool) 
 		return
 	}
 
-	rate := float64(counts.Timeouts) * 100 / float64(counts.Total)
-	if rate < setting.DisableRate {
+	if !reachedFirstResponseTimeoutDisableThreshold(counts, setting) {
 		return
 	}
+	rate := float64(counts.Timeouts) * 100 / float64(counts.Total)
 
 	reason := fmt.Sprintf(
 		"first response timeout rate %.2f%% (%d/%d attempts in %d minutes) reached configured threshold %.2f%%",

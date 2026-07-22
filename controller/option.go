@@ -345,6 +345,16 @@ func UpdateOption(c *gin.Context) {
 			common.ApiErrorMsg(c, err.Error())
 			return
 		}
+	case "first_response_timeout_setting.disable_min_timeout_attempts":
+		value, parseErr := strconv.Atoi(option.Value.(string))
+		if parseErr != nil {
+			common.ApiErrorMsg(c, "invalid minimum first response timeout attempts")
+			return
+		}
+		if err = operation_setting.ValidateFirstResponseDisableMinTimeoutAttempts(value); err != nil {
+			common.ApiErrorMsg(c, err.Error())
+			return
+		}
 	case "console_setting.api_info":
 		err = console_setting.ValidateConsoleSettings(option.Value.(string), "ApiInfo")
 		if err != nil {

@@ -89,6 +89,10 @@ const MODELS_SECTIONS = [
             settings['first_response_timeout_setting.disable_window_minutes'],
           'first_response_timeout_setting.disable_rate':
             settings['first_response_timeout_setting.disable_rate'],
+          'first_response_timeout_setting.disable_min_timeout_attempts':
+            settings[
+              'first_response_timeout_setting.disable_min_timeout_attempts'
+            ],
           'monitor_setting.auto_test_channel_enabled':
             settings['monitor_setting.auto_test_channel_enabled'],
           'monitor_setting.auto_test_channel_minutes':

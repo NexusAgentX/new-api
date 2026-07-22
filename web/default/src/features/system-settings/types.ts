@@ -238,6 +238,7 @@ export type ModelSettings = {
   'first_response_timeout_setting.disable_enabled': boolean
   'first_response_timeout_setting.disable_window_minutes': number
   'first_response_timeout_setting.disable_rate': number
+  'first_response_timeout_setting.disable_min_timeout_attempts': number
   'monitor_setting.auto_test_channel_enabled': boolean
   'monitor_setting.auto_test_channel_minutes': number
   'monitor_setting.channel_test_mode': 'scheduled_all' | 'passive_recovery'
