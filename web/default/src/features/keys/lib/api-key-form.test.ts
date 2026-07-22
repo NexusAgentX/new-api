@@ -26,7 +26,10 @@ import {
   transformFormDataToPayload,
 } from './api-key-form'
 
-function createApiKey(requestCustomization: string): ApiKey {
+function createApiKey(
+  requestCustomization: string,
+  autoGroupPolicy = ''
+): ApiKey {
   return {
     id: 1,
     name: 'policy-key',
@@ -42,13 +45,14 @@ function createApiKey(requestCustomization: string): ApiKey {
     cross_group_retry: true,
     model_limits_enabled: false,
     model_limits: '',
+    auto_group_policy: autoGroupPolicy,
     request_customization: requestCustomization,
     allow_ips: '',
   }
 }
 
 describe('API key auto-group policy form', () => {
-  test('serializes model mapping and auto-group policy together', () => {
+  test('serializes model mapping and auto-group policy separately', () => {
     const values = getApiKeyFormDefaultValues(true)
     values.model_mapping = '{"client-model":"gateway-model"}'
     values.auto_group_policy = {
@@ -72,17 +76,17 @@ describe('API key auto-group policy form', () => {
     assert.deepEqual(JSON.parse(payload.request_customization), {
       version: 1,
       model_mapping: { 'client-model': 'gateway-model' },
-      auto_group_policy: {
-        default_rule: {
-          mode: 'denylist',
-          groups: ['premium'],
-          max_ratio: 1.5,
-        },
-        model_rules: {
-          'gateway-model': {
-            mode: 'allowlist',
-            groups: ['preferred'],
-          },
+    })
+    assert.deepEqual(JSON.parse(payload.auto_group_policy), {
+      default_rule: {
+        mode: 'denylist',
+        groups: ['premium'],
+        max_ratio: 1.5,
+      },
+      model_rules: {
+        'gateway-model': {
+          mode: 'allowlist',
+          groups: ['preferred'],
         },
       },
     })
@@ -90,13 +94,11 @@ describe('API key auto-group policy form', () => {
 
   test('restores a persisted policy for editing', () => {
     const apiKey = createApiKey(
+      '',
       JSON.stringify({
-        version: 1,
-        auto_group_policy: {
-          default_rule: { min_ratio: 0, max_ratio: 1.5 },
-          model_rules: {
-            'gpt-4o': { mode: 'denylist', groups: ['premium'] },
-          },
+        default_rule: { min_ratio: 0, max_ratio: 1.5 },
+        model_rules: {
+          'gpt-4o': { mode: 'denylist', groups: ['premium'] },
         },
       })
     )
@@ -122,6 +124,7 @@ describe('API key auto-group policy form', () => {
     values.auto_group_policy.enabled = true
 
     const payload = transformFormDataToPayload(values)
+    assert.equal(payload.auto_group_policy, '')
     assert.equal(payload.request_customization, '')
   })
 })

@@ -57,6 +57,7 @@ const (
 	MsgTokenDbError              = "token.db_error"
 
 	MsgTokenRequestCustomizationInvalid = "token.request_customization_invalid"
+	MsgTokenAutoGroupPolicyInvalid      = "token.auto_group_policy_invalid"
 )
 
 // Redemption related messages

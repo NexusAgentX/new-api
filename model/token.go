@@ -30,6 +30,7 @@ type Token struct {
 	CrossGroupRetry    bool           `json:"cross_group_retry"` // 跨分组重试，仅auto分组有效
 	DeletedAt          gorm.DeletedAt `gorm:"index"`
 
+	AutoGroupPolicy      string `json:"auto_group_policy,omitempty" gorm:"type:text"`
 	RequestCustomization string `json:"request_customization,omitempty" gorm:"type:text"`
 }
 
@@ -304,7 +305,7 @@ func (token *Token) Update() (err error) {
 		}
 	}()
 	err = DB.Model(token).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota",
-		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry", "request_customization").Updates(token).Error
+		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry", "auto_group_policy", "request_customization").Updates(token).Error
 	return err
 }
 

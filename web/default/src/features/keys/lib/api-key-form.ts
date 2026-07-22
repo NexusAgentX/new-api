@@ -272,13 +272,11 @@ export function transformFormDataToPayload(
   const requestCustomization: {
     version: 1
     model_mapping?: Record<string, string>
-    auto_group_policy?: ReturnType<typeof serializeAutoGroupPolicy>
   } = { version: 1 }
   if (data.model_mapping.trim()) {
     requestCustomization.model_mapping = JSON.parse(data.model_mapping)
   }
   const autoGroupPolicy = serializeAutoGroupPolicy(data.auto_group_policy)
-  if (autoGroupPolicy) requestCustomization.auto_group_policy = autoGroupPolicy
 
   return {
     name: data.name,
@@ -291,11 +289,10 @@ export function transformFormDataToPayload(
     unlimited_quota: data.unlimited_quota,
     model_limits_enabled: data.model_limits.length > 0,
     model_limits: data.model_limits.join(','),
-    request_customization:
-      requestCustomization.model_mapping ||
-      requestCustomization.auto_group_policy
-        ? JSON.stringify(requestCustomization)
-        : '',
+    auto_group_policy: autoGroupPolicy ? JSON.stringify(autoGroupPolicy) : '',
+    request_customization: requestCustomization.model_mapping
+      ? JSON.stringify(requestCustomization)
+      : '',
     allow_ips: data.allow_ips || '',
     group: data.group || '',
     cross_group_retry: data.group === 'auto' ? !!data.cross_group_retry : false,
@@ -365,25 +362,21 @@ function extractTokenModelMapping(
 }
 
 function extractAutoGroupPolicy(
-  requestCustomization: string | null | undefined
+  autoGroupPolicy: string | null | undefined
 ): AutoGroupPolicyForm {
   const fallback: AutoGroupPolicyForm = {
     enabled: false,
     default_rule: { ...EMPTY_AUTO_GROUP_RULE, groups: [] },
     model_rules: [],
   }
-  if (!requestCustomization?.trim()) return fallback
+  if (!autoGroupPolicy?.trim()) return fallback
 
   try {
-    const config = JSON.parse(requestCustomization) as {
-      version?: unknown
-      auto_group_policy?: {
-        default_rule?: unknown
-        model_rules?: unknown
-      }
+    const policy = JSON.parse(autoGroupPolicy) as {
+      default_rule?: unknown
+      model_rules?: unknown
     }
-    if (config.version !== 1 || !config.auto_group_policy) return fallback
-    const rawRules = config.auto_group_policy.model_rules
+    const rawRules = policy.model_rules
     const modelRules: AutoGroupModelRuleForm[] = []
     if (rawRules && typeof rawRules === 'object' && !Array.isArray(rawRules)) {
       for (const [model, rule] of Object.entries(rawRules)) {
@@ -395,8 +388,8 @@ function extractAutoGroupPolicy(
       }
     }
     return {
-      enabled: config.auto_group_policy.default_rule !== undefined,
-      default_rule: parseAutoGroupRule(config.auto_group_policy.default_rule),
+      enabled: policy.default_rule !== undefined,
+      default_rule: parseAutoGroupRule(policy.default_rule),
       model_rules: modelRules,
     }
   } catch {
@@ -424,7 +417,7 @@ export function transformApiKeyToFormDefaults(
       ? apiKey.model_limits.split(',').filter(Boolean)
       : [],
     model_mapping: extractTokenModelMapping(apiKey.request_customization),
-    auto_group_policy: extractAutoGroupPolicy(apiKey.request_customization),
+    auto_group_policy: extractAutoGroupPolicy(apiKey.auto_group_policy),
     allow_ips: apiKey.allow_ips || '',
     group: apiKey.group || DEFAULT_GROUP,
     cross_group_retry: !!apiKey.cross_group_retry,
