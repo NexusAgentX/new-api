@@ -78,7 +78,12 @@ jobs:
 
           REMOTE_SHA="$(
             git ls-remote https://github.com/NexusAgentX/new-api.git \
-              "refs/tags/${TAG}^{}" | awk '{ print $1; exit }'
+              "refs/tags/${TAG}" "refs/tags/${TAG}^{}" | \
+              awk -v direct="refs/tags/${TAG}" -v peeled="refs/tags/${TAG}^{}" '
+                $2 == peeled { print $1; found_peeled = 1; exit }
+                $2 == direct { direct_sha = $1 }
+                END { if (!found_peeled) print direct_sha }
+              '
           )"
           if [[ ! "$REMOTE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             echo "::error::Could not resolve tag commit for $TAG"
