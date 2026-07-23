@@ -42,9 +42,11 @@ var (
 
 type channelAffinityMeta struct {
 	CacheKey          string
+	CacheKeys         []string
 	TTLSeconds        int
 	RuleName          string
 	AffinityValue     string
+	AffinityValues    []string
 	IncludeUsingGroup bool
 	IncludeModelName  bool
 	IncludeRuleName   bool
@@ -55,6 +57,7 @@ type channelAffinityMeta struct {
 	KeySourcePath     string
 	KeyHint           string
 	KeyFingerprint    string
+	MessageProtocol   string
 	UsingGroup        string
 	ModelName         string
 	RequestPath       string
@@ -353,7 +356,40 @@ func buildChannelAffinityCacheKeySuffix(rule operation_setting.ChannelAffinityRu
 	return strings.Join(parts, ":")
 }
 
+func buildChannelAffinityCacheKeys(rule operation_setting.ChannelAffinityRule, modelName, usingGroup, sourceType, messageProtocol string, affinityValues []string) ([]string, []string) {
+	cacheKeys := make([]string, 0, len(affinityValues))
+	cacheKeySuffixes := make([]string, 0, len(affinityValues))
+	seen := make(map[string]struct{}, len(affinityValues))
+	for _, affinityValue := range affinityValues {
+		if affinityValue == "" {
+			continue
+		}
+		cacheValue := affinityValue
+		if sourceType == channelAffinityMessageHashSource {
+			cacheValue = channelAffinityMessageHashSource
+			if messageProtocol != "" {
+				cacheValue += ":" + messageProtocol
+			}
+			cacheValue += ":" + affinityValue
+		}
+		cacheKeySuffix := buildChannelAffinityCacheKeySuffix(rule, modelName, usingGroup, cacheValue)
+		if _, exists := seen[cacheKeySuffix]; exists {
+			continue
+		}
+		seen[cacheKeySuffix] = struct{}{}
+		cacheKeySuffixes = append(cacheKeySuffixes, cacheKeySuffix)
+		cacheKeys = append(cacheKeys, channelAffinityCacheNamespace+":"+cacheKeySuffix)
+	}
+	return cacheKeys, cacheKeySuffixes
+}
+
 func setChannelAffinityContext(c *gin.Context, meta channelAffinityMeta) {
+	if len(meta.CacheKeys) == 0 && meta.CacheKey != "" {
+		meta.CacheKeys = []string{meta.CacheKey}
+	}
+	if len(meta.AffinityValues) == 0 && meta.AffinityValue != "" {
+		meta.AffinityValues = []string{meta.AffinityValue}
+	}
 	c.Set(ginKeyChannelAffinityCacheKey, meta.CacheKey)
 	c.Set(ginKeyChannelAffinityTTLSeconds, meta.TTLSeconds)
 	c.Set(ginKeyChannelAffinityMeta, meta)
@@ -377,8 +413,15 @@ func updateChannelAffinitySelectedGroup(c *gin.Context, selectedGroup string) {
 			IncludeModelName:  meta.IncludeModelName,
 			IncludeRuleName:   meta.IncludeRuleName,
 		}
-		cacheKeySuffix := buildChannelAffinityCacheKeySuffix(rule, meta.ModelName, selectedGroup, meta.AffinityValue)
-		meta.CacheKey = channelAffinityCacheNamespace + ":" + cacheKeySuffix
+		affinityValues := meta.AffinityValues
+		if len(affinityValues) == 0 && meta.AffinityValue != "" {
+			affinityValues = []string{meta.AffinityValue}
+		}
+		cacheKeys, _ := buildChannelAffinityCacheKeys(rule, meta.ModelName, selectedGroup, meta.KeySourceType, meta.MessageProtocol, affinityValues)
+		if len(cacheKeys) > 0 {
+			meta.CacheKey = cacheKeys[0]
+			meta.CacheKeys = cacheKeys
+		}
 	}
 	setChannelAffinityContext(c, meta)
 	if anyInfo, exists := c.Get(ginKeyChannelAffinityLogInfo); exists {
@@ -607,12 +650,31 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup 
 			continue
 		}
 		var affinityValue string
+		var affinityValues []string
 		var usedSource operation_setting.ChannelAffinityKeySource
-		for _, src := range rule.KeySources {
+		var messageHashSource *operation_setting.ChannelAffinityKeySource
+		messageProtocol := ""
+		for i := range rule.KeySources {
+			src := rule.KeySources[i]
+			if src.Type == channelAffinityMessageHashSource {
+				if messageHashSource == nil {
+					messageHashSource = &rule.KeySources[i]
+				}
+				continue
+			}
 			affinityValue = extractChannelAffinityValue(c, src)
 			if affinityValue != "" {
 				usedSource = src
+				affinityValues = []string{affinityValue}
 				break
+			}
+		}
+		if affinityValue == "" && messageHashSource != nil {
+			if hashes, ok := extractChannelAffinityMessageHashes(c); ok && len(hashes.Values) > 0 {
+				affinityValue = hashes.Values[0]
+				affinityValues = hashes.Values
+				usedSource = *messageHashSource
+				messageProtocol = hashes.Protocol
 			}
 		}
 		if affinityValue == "" {
@@ -626,13 +688,17 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup 
 		if ttlSeconds <= 0 {
 			ttlSeconds = setting.DefaultTTLSeconds
 		}
-		cacheKeySuffix := buildChannelAffinityCacheKeySuffix(rule, modelName, usingGroup, affinityValue)
-		cacheKeyFull := channelAffinityCacheNamespace + ":" + cacheKeySuffix
+		cacheKeys, cacheKeySuffixes := buildChannelAffinityCacheKeys(rule, modelName, usingGroup, usedSource.Type, messageProtocol, affinityValues)
+		if len(cacheKeys) == 0 {
+			continue
+		}
 		setChannelAffinityContext(c, channelAffinityMeta{
-			CacheKey:          cacheKeyFull,
+			CacheKey:          cacheKeys[0],
+			CacheKeys:         cacheKeys,
 			TTLSeconds:        ttlSeconds,
 			RuleName:          rule.Name,
 			AffinityValue:     affinityValue,
+			AffinityValues:    affinityValues,
 			IncludeUsingGroup: rule.IncludeUsingGroup,
 			IncludeModelName:  rule.IncludeModelName,
 			IncludeRuleName:   rule.IncludeRuleName,
@@ -643,19 +709,22 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup 
 			KeySourcePath:     strings.TrimSpace(usedSource.Path),
 			KeyHint:           buildChannelAffinityKeyHint(affinityValue),
 			KeyFingerprint:    affinityFingerprint(affinityValue),
+			MessageProtocol:   messageProtocol,
 			UsingGroup:        usingGroup,
 			ModelName:         modelName,
 			RequestPath:       path,
 		})
 
 		cache := getChannelAffinityCache()
-		channelID, found, err := cache.Get(cacheKeySuffix)
-		if err != nil {
-			common.SysError(fmt.Sprintf("channel affinity cache get failed: key=%s, err=%v", cacheKeyFull, err))
-			return 0, false
-		}
-		if found {
-			return channelID, true
+		for i, cacheKeySuffix := range cacheKeySuffixes {
+			channelID, found, err := cache.Get(cacheKeySuffix)
+			if err != nil {
+				common.SysError(fmt.Sprintf("channel affinity cache get failed: key=%s, err=%v", cacheKeys[i], err))
+				return 0, false
+			}
+			if found {
+				return channelID, true
+			}
 		}
 		return 0, false
 	}
@@ -684,13 +753,18 @@ func ClearCurrentChannelAffinityCache(c *gin.Context) bool {
 	if c == nil {
 		return false
 	}
-	cacheKey, _, ok := getChannelAffinityContext(c)
-	if !ok || cacheKey == "" {
+	cacheKeys := make([]string, 0, 1)
+	if meta, ok := getChannelAffinityMeta(c); ok && len(meta.CacheKeys) > 0 {
+		cacheKeys = append(cacheKeys, meta.CacheKeys...)
+	} else if cacheKey, _, ok := getChannelAffinityContext(c); ok && cacheKey != "" {
+		cacheKeys = append(cacheKeys, cacheKey)
+	}
+	if len(cacheKeys) == 0 {
 		return false
 	}
 
 	cache := getChannelAffinityCache()
-	deleted, err := cache.DeleteMany([]string{cacheKey})
+	deleted, err := cache.DeleteMany(cacheKeys)
 	if err != nil {
 		common.SysError(fmt.Sprintf("channel affinity cache delete current failed: err=%v", err))
 		return false
@@ -734,6 +808,9 @@ func MarkChannelAffinityUsed(c *gin.Context, selectedGroup string, channelID int
 		"key_path":       meta.KeySourcePath,
 		"key_hint":       meta.KeyHint,
 		"key_fp":         meta.KeyFingerprint,
+	}
+	if meta.MessageProtocol != "" {
+		info["message_protocol"] = meta.MessageProtocol
 	}
 	c.Set(ginKeyChannelAffinityLogInfo, info)
 }
