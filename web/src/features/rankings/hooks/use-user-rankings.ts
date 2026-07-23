@@ -16,42 +16,20 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { api } from '@/lib/api'
+import { useQuery } from '@tanstack/react-query'
 
-import type {
-  RankingPeriod,
-  RankingsSnapshot,
-  UserRankingPeriod,
-  UserRankingsSnapshot,
-  UserRankingSort,
-} from './types'
+import { getUserRankings } from '../api'
+import type { UserRankingPeriod, UserRankingSort } from '../types'
 
-type RankingsResponse = {
-  success: boolean
-  message?: string
-  data: RankingsSnapshot
-}
-
-export async function getRankings(
-  period: RankingPeriod
-): Promise<RankingsResponse> {
-  const res = await api.get('/api/rankings', { params: { period } })
-  return res.data
-}
-
-type UserRankingsResponse = {
-  success: boolean
-  message?: string
-  data: UserRankingsSnapshot
-}
-
-export async function getUserRankings(
+export function useUserRankings(
   period: UserRankingPeriod,
   sort: UserRankingSort,
-  limit = 20
-): Promise<UserRankingsResponse> {
-  const res = await api.get('/api/user-rankings', {
-    params: { period, sort, limit },
+  enabled: boolean
+) {
+  return useQuery({
+    queryKey: ['user-rankings', period, sort, 20],
+    queryFn: () => getUserRankings(period, sort),
+    enabled,
+    staleTime: 5 * 60 * 1000,
   })
-  return res.data
 }

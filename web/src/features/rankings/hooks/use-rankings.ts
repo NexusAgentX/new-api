@@ -21,10 +21,11 @@ import { useQuery } from '@tanstack/react-query'
 import { getRankings } from '../api'
 import type { RankingPeriod } from '../types'
 
-export function useRankings(period: RankingPeriod) {
+export function useRankings(period: RankingPeriod, enabled = true) {
   return useQuery({
     queryKey: ['rankings', period],
     queryFn: () => getRankings(period),
+    enabled,
     staleTime: 5 * 60 * 1000,
   })
 }
