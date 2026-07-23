@@ -56,6 +56,7 @@ const KEY_SOURCE_TYPES = [
   'context_string',
   'request_header',
   'gjson',
+  'message_hash',
 ] as const
 
 const CONTEXT_KEY_PRESETS = [
@@ -69,6 +70,14 @@ const CONTEXT_KEY_PRESETS = [
   'user_email',
   'specific_channel_id',
 ]
+
+const KEY_SOURCE_PLACEHOLDERS: Record<KeySource['type'], string> = {
+  context_int: 'user_id',
+  context_string: 'user_id',
+  request_header: 'user_id',
+  gjson: 'metadata.conversation_id',
+  message_hash: '',
+}
 
 const RULE_FORM_ID = 'channel-affinity-rule-form'
 
@@ -95,6 +104,7 @@ function normalizeStringList(text: string): string[] {
 
 function normalizeKeySource(src: Partial<KeySource>): KeySource {
   const type = (src?.type || 'gjson') as KeySource['type']
+  if (type === 'message_hash') return { type, key: '', path: '' }
   if (type === 'gjson') return { type, key: '', path: src?.path || '' }
   return { type, key: src?.key || '', path: '' }
 }
@@ -199,7 +209,10 @@ export function RuleEditorDialog(props: Props) {
 
     const validKeySources = keySources
       .map(normalizeKeySource)
-      .filter((s) => s.type && (s.type === 'gjson' ? s.path : s.key))
+      .filter(
+        (s) =>
+          s.type === 'message_hash' || (s.type === 'gjson' ? s.path : s.key)
+      )
     if (validKeySources.length === 0) {
       toast.error(t('At least one valid key source is required'))
       return
@@ -363,12 +376,9 @@ export function RuleEditorDialog(props: Props) {
                 </Select>
                 <Input
                   className='min-w-0 flex-1'
-                  placeholder={
-                    src.type === 'gjson'
-                      ? 'metadata.conversation_id'
-                      : 'user_id'
-                  }
+                  placeholder={KEY_SOURCE_PLACEHOLDERS[src.type]}
                   value={src.type === 'gjson' ? src.path || '' : src.key || ''}
+                  disabled={src.type === 'message_hash'}
                   onChange={(e) => {
                     const next = [...keySources]
                     if (src.type === 'gjson') {
