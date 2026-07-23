@@ -90,6 +90,13 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	defer func() {
 		if newAPIError != nil {
+			if newAPIError.GetErrorCode() == types.ErrorCodeRequestCanceled {
+				logger.LogInfo(c, "relay stopped because request context was canceled")
+				if relayFormat != types.RelayFormatOpenAIRealtime {
+					c.Status(newAPIError.StatusCode)
+				}
+				return
+			}
 			logger.LogError(c, fmt.Sprintf("relay error: %s", common.LocalLogPreview(newAPIError.Error())))
 			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
 			switch relayFormat {
@@ -191,6 +198,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	relayInfo.LastError = nil
 
 	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
+		if contextErr := requestContextError(c); contextErr != nil {
+			newAPIError = contextErr
+			break
+		}
 		relayInfo.RetryIndex = retryParam.GetRetry()
 		channel, channelErr := getChannel(c, relayInfo, retryParam)
 		if channelErr != nil {
@@ -225,10 +236,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 		attemptResult := relayInfo.EndFirstResponseAttempt()
 		channelError := *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan())
-		if attemptResult.TimedOut {
+		contextErr := requestContextError(c)
+		if attemptResult.TimedOut && contextErr == nil {
 			newAPIError = types.NewUpstreamFirstResponseTimeoutError(attemptResult.TimeoutSeconds)
 		}
-		if attemptResult.Monitored {
+		if attemptResult.Monitored && contextErr == nil {
 			gopool.Go(func() {
 				service.RecordFirstResponseAttempt(channelError, attemptResult.TimedOut)
 			})
@@ -237,6 +249,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		if newAPIError == nil {
 			relayInfo.LastError = nil
 			return
+		}
+		if contextErr != nil {
+			newAPIError = contextErr
+			relayInfo.LastError = newAPIError
+			break
 		}
 
 		newAPIError = service.NormalizeViolationFeeError(newAPIError)
@@ -254,7 +271,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		retryLogStr := fmt.Sprintf("重试：%s", strings.Trim(strings.Join(strings.Fields(fmt.Sprint(useChannel)), "->"), "[]"))
 		logger.LogInfo(c, retryLogStr)
 	}
-	if newAPIError != nil {
+	if newAPIError != nil && newAPIError.GetErrorCode() != types.ErrorCodeRequestCanceled {
 		gopool.Go(func() {
 			perfmetrics.RecordRelaySample(relayInfo, false, 0)
 		})
@@ -335,8 +352,21 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 	return channel, nil
 }
 
+func requestContextError(c *gin.Context) *types.NewAPIError {
+	if c == nil || c.Request == nil {
+		return nil
+	}
+	if err := c.Request.Context().Err(); err != nil {
+		return types.NewRequestCanceledError(err)
+	}
+	return nil
+}
+
 func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) bool {
 	if openaiErr == nil {
+		return false
+	}
+	if requestContextError(c) != nil {
 		return false
 	}
 	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
