@@ -67,7 +67,8 @@ const (
 	ErrorCodeAccessDenied          ErrorCode = "access_denied"
 
 	// request error
-	ErrorCodeBadRequestBody ErrorCode = "bad_request_body"
+	ErrorCodeBadRequestBody  ErrorCode = "bad_request_body"
+	ErrorCodeRequestCanceled ErrorCode = "request_canceled"
 
 	// response error
 	ErrorCodeReadResponseBodyFailed ErrorCode = "read_response_body_failed"
@@ -320,6 +321,16 @@ func NewUpstreamFirstResponseTimeoutError(timeoutSeconds int) *NewAPIError {
 		fmt.Errorf("upstream channel did not return a first response within %d seconds", timeoutSeconds),
 		ErrorCodeUpstreamFirstResponseTimeout,
 		524,
+	)
+}
+
+func NewRequestCanceledError(err error) *NewAPIError {
+	return NewErrorWithStatusCode(
+		err,
+		ErrorCodeRequestCanceled,
+		499,
+		ErrOptionWithSkipRetry(),
+		ErrOptionWithNoRecordErrorLog(),
 	)
 }
 
