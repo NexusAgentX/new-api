@@ -23,6 +23,9 @@ For commercial licensing, please contact support@quantumnous.com
 // Shape of the real data shown on the /rankings page.
 
 export type RankingPeriod = 'today' | 'week' | 'month' | 'year'
+export type UserRankingPeriod = Exclude<RankingPeriod, 'year'>
+export type RankingView = 'models' | 'users'
+export type UserRankingSort = 'tokens' | 'quota' | 'count'
 
 export type RankingCategoryId =
   | 'all'
@@ -121,6 +124,39 @@ export type VendorShareSeries = {
   /** Vendors that appear in the series, sorted by aggregate tokens desc. */
   vendors: Array<{ name: string; total: number; share: number }>
   buckets: number
+}
+
+export type UserRankingModel = {
+  model_name: string
+  tokens: number
+  quota: number
+  count: number
+  share: number
+}
+
+export type UserRanking = {
+  rank: number
+  display_name: string
+  username?: string
+  deleted?: boolean
+  tokens: number
+  quota: number
+  count: number
+  top_models: UserRankingModel[]
+}
+
+export type UserRankingsSnapshot = {
+  period: UserRankingPeriod
+  sort: UserRankingSort
+  generated_at: string
+  data_available: boolean
+  unavailable_reason?: 'data_export_disabled'
+  metrics: {
+    count: 'consumption_records'
+    tokens: 'prompt_completion_tokens'
+    quota: 'gross_quota'
+  }
+  users: UserRanking[]
 }
 
 export type RankingsSnapshot = {
