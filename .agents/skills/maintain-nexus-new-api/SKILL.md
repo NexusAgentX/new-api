@@ -49,18 +49,35 @@ description: Maintain the NexusAgentX New API fork and preserve its fork-specifi
 3. Treat the scheduled `Nexus upstream check` workflow as a notification. It
    may report drift, but it must never rewrite `nexus` automatically.
 4. Use `--target <official-v-tag>` when the user requested a specific release.
-5. Run the update only after reviewing the old base, new base, and patch count:
+5. After an upstream target is approved but before changing the base, repack
+   the current Nexus stack against its existing official base:
+   - Create a dated backup branch and work in a temporary branch or worktree.
+   - Fold follow-up and rebase-compatibility fixes into their owning feature
+     commits. Drop only commits whose final behavior is fully cancelled.
+   - Keep independent, reviewable product behaviors as separate commits; do
+     not squash the entire stack into a broad aggregate patch.
+   - Require the repacked tree to match the backup exactly with
+     `git diff --exit-code <backup>..<repacked>`, then review the patch-series
+     change with `git range-diff <base>..<backup> <base>..<repacked>`.
+   - Run the applicable validation from [validation.md](references/validation.md)
+     and update `origin/nexus` with `git push --force-with-lease` before
+     starting the upstream rebase. Never use an unconditional force push.
+6. Run the update only after reviewing the old base, new base, and compacted
+   patch count:
 
    ```bash
    scripts/nexus/update-upstream.sh
    ```
 
-6. Resolve rebase conflicts without dropping the behavior documented in
-   [fork-invariants.md](references/fork-invariants.md). Use the backup branch
-   and `git range-diff` command printed by the script to compare the old and
-   new patch stacks.
-7. Follow [validation.md](references/validation.md).
-8. Push rewritten history only after validation:
+7. Resolve rebase conflicts without dropping the behavior documented in
+   [fork-invariants.md](references/fork-invariants.md). Put each direct
+   conflict resolution into the feature commit being replayed; if validation
+   later identifies a cross-feature compatibility fix, split it into focused
+   fixups and fold those into the owning commits before finalizing the stack.
+   Use the backup branch and `git range-diff` command printed by the script to
+   compare the old and new patch stacks.
+8. Follow [validation.md](references/validation.md).
+9. Push rewritten history only after validation:
 
    ```bash
    git push --force-with-lease origin nexus

@@ -39,6 +39,27 @@ git tag --list 'nexus-v*' --sort=-version:refname
 | Update checker | Nexus builds detect `*-nexus.N` versions and compare them with `NexusAgentX/new-api` `nexus-v*` tags; official builds keep the upstream release check. | `web/src/features/system-settings/maintenance/update-checker-section.tsx` |
 | Attribution | Preserve New API, QuantumNous, copyright, license, notices, and upstream documentation. Publish corresponding Nexus source publicly. | `README.md`, `LICENSE`, `NOTICE`, `THIRD-PARTY-LICENSES.md` |
 
+## Patch Stack Hygiene
+
+Before rebasing `nexus` onto a newer official release tag, first compact the
+current patch stack while it is still based on the existing official tag.
+This is a required maintenance gate after a target release is approved, not an
+automatic action performed by the scheduled upstream-check workflow.
+
+- Create a dated backup branch and do the compaction in a temporary branch or
+  worktree.
+- Fold follow-up fixes, reversions, and rebase-compatibility fixes into the
+  feature commit that owns the resulting behavior. Keep independent product
+  capabilities as distinct commits.
+- Do not alter or discard migration paths that deployed installations may need;
+  only remove Git history that has no surviving behavior.
+- Prove that compaction preserves the final tree with
+  `git diff --exit-code <backup>..<repacked>` and review the rewritten series
+  with `git range-diff <base>..<backup> <base>..<repacked>`.
+- Run the applicable validation, verify the remote has not advanced, and use
+  `git push --force-with-lease origin nexus` to publish the compacted stack.
+  Only then begin the official-base rebase.
+
 ## External Deployment Boundary
 
 Building or publishing a Nexus image is not a production deployment. The

@@ -25,7 +25,22 @@ Preview the latest official release before changing any refs:
 scripts/nexus/update-upstream.sh --dry-run
 ```
 
-Then replay only the NexusAgentX commits onto the selected release tag:
+After selecting a target release but before replaying it, compact the current
+Nexus patch stack against its existing official base. Work from a dated backup
+branch in a temporary worktree. Fold follow-up fixes and cancelled experiments
+into their owning feature commits, while keeping independent product behavior
+as separate commits. Prove that the final tree did not change and review the
+series rewrite before publishing it:
+
+```bash
+git diff --exit-code <backup-branch>..<repacked-branch>
+git range-diff <current-base>..<backup-branch> \
+  <current-base>..<repacked-branch>
+git push --force-with-lease origin nexus
+```
+
+Only after the compacted stack is validated and published, replay the
+NexusAgentX commits onto the selected release tag:
 
 ```bash
 scripts/nexus/update-upstream.sh
