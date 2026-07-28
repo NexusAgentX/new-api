@@ -128,8 +128,15 @@ GitHub Environment before using SSH.
 The production host accepts only a restricted, forced-command deploy key. That
 key runs `/usr/local/sbin/new-api-github-deploy`, which pulls the requested
 image, creates a fresh backup, updates `/opt/new-api/compose.yaml`, validates
-the Compose file, waits for New API/PostgreSQL/Redis health, checks both
-public endpoints, and restores the previous Compose file on failure.
+the Compose file, waits for all six services to become healthy, checks the
+source and configured public endpoint, and restores the previous Compose file
+on failure.
+
+The `production-new-api` Environment selects the active host through
+`PRODUCTION_HOST`, `PRODUCTION_SSH_USER`, `PRODUCTION_SSH_HOST_KEY`, and
+`PRODUCTION_SSH_PRIVATE_KEY`. During a host migration, update those secrets
+only after the target has passed its restore and origin checks. Environment
+approval remains required regardless of which host is active.
 
 The workflow deploys only the exact `tag@digest` resolved from GHCR. It does
 not follow a moving branch or `latest` tag.

@@ -113,7 +113,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   deploy:
-    name: Deploy to us-west-vps
+    name: Deploy production
     if: github.repository == 'NexusAgentX/new-api' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
     needs: [resolve]
     environment:
@@ -122,10 +122,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
-      US_WEST_HOST: ${{ secrets.US_WEST_HOST }}
-      US_WEST_SSH_USER: ${{ secrets.US_WEST_SSH_USER }}
-      US_WEST_SSH_HOST_KEY: ${{ secrets.US_WEST_SSH_HOST_KEY }}
-      US_WEST_SSH_PRIVATE_KEY: ${{ secrets.US_WEST_SSH_PRIVATE_KEY }}
+      PRODUCTION_HOST: ${{ secrets.PRODUCTION_HOST }}
+      PRODUCTION_SSH_USER: ${{ secrets.PRODUCTION_SSH_USER }}
+      PRODUCTION_SSH_HOST_KEY: ${{ secrets.PRODUCTION_SSH_HOST_KEY }}
+      PRODUCTION_SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
 
     steps:
       - name: Configure restricted deploy key
@@ -133,9 +133,9 @@ jobs:
         run: |
           set -euo pipefail
           install -d -m 0700 "$HOME/.ssh"
-          printf '%s\n' "$US_WEST_SSH_PRIVATE_KEY" > "$HOME/.ssh/new-api-github-deploy"
-          chmod 0600 "$HOME/.ssh/new-api-github-deploy"
-          printf '%s\n' "$US_WEST_SSH_HOST_KEY" > "$HOME/.ssh/known_hosts"
+          printf '%s\n' "$PRODUCTION_SSH_PRIVATE_KEY" > "$HOME/.ssh/new-api-production-deploy"
+          chmod 0600 "$HOME/.ssh/new-api-production-deploy"
+          printf '%s\n' "$PRODUCTION_SSH_HOST_KEY" > "$HOME/.ssh/known_hosts"
           chmod 0600 "$HOME/.ssh/known_hosts"
 
       - name: Run production deploy
@@ -143,12 +143,12 @@ jobs:
         run: |
           set -euo pipefail
           ssh \
-            -i "$HOME/.ssh/new-api-github-deploy" \
+            -i "$HOME/.ssh/new-api-production-deploy" \
             -o IdentitiesOnly=yes \
             -o BatchMode=yes \
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
-            "${US_WEST_SSH_USER}@${US_WEST_HOST}" \
+            "${PRODUCTION_SSH_USER}@${PRODUCTION_HOST}" \
             deploy "${{ needs.resolve.outputs.tag }}" "${{ needs.resolve.outputs.digest }}"
 
       - name: Deployment summary
