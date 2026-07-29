@@ -50,6 +50,8 @@ type channelAffinityMeta struct {
 	IncludeUsingGroup bool
 	IncludeModelName  bool
 	IncludeRuleName   bool
+	IncludePriority   bool
+	Priority          int64
 	SkipRetry         bool
 	ParamTemplate     map[string]interface{}
 	KeySourceType     string
@@ -179,15 +181,19 @@ func GetChannelAffinityCacheStats() ChannelAffinityCacheStats {
 				continue
 			}
 		}
+		minParts := 2
+		if rule.IncludeModelName {
+			minParts++
+		}
 		if rule.IncludeUsingGroup {
-			minParts := 3
-			if rule.IncludeModelName {
-				minParts = 4
-			}
-			if len(parts) < minParts {
-				unknown++
-				continue
-			}
+			minParts++
+		}
+		if rule.IncludePriority {
+			minParts++
+		}
+		if len(parts) < minParts {
+			unknown++
+			continue
 		}
 		byRuleName[ruleName]++
 	}
@@ -341,8 +347,8 @@ func extractChannelAffinityValue(c *gin.Context, src operation_setting.ChannelAf
 	}
 }
 
-func buildChannelAffinityCacheKeySuffix(rule operation_setting.ChannelAffinityRule, modelName string, usingGroup string, affinityValue string) string {
-	parts := make([]string, 0, 4)
+func buildChannelAffinityCacheKeySuffix(rule operation_setting.ChannelAffinityRule, modelName string, usingGroup string, priority int64, affinityValue string) string {
+	parts := make([]string, 0, 5)
 	if rule.IncludeRuleName && rule.Name != "" {
 		parts = append(parts, rule.Name)
 	}
@@ -352,11 +358,14 @@ func buildChannelAffinityCacheKeySuffix(rule operation_setting.ChannelAffinityRu
 	if rule.IncludeUsingGroup && usingGroup != "" {
 		parts = append(parts, usingGroup)
 	}
+	if rule.IncludePriority {
+		parts = append(parts, "priority="+strconv.FormatInt(priority, 10))
+	}
 	parts = append(parts, affinityValue)
 	return strings.Join(parts, ":")
 }
 
-func buildChannelAffinityCacheKeys(rule operation_setting.ChannelAffinityRule, modelName, usingGroup, sourceType, messageProtocol string, affinityValues []string) ([]string, []string) {
+func buildChannelAffinityCacheKeys(rule operation_setting.ChannelAffinityRule, modelName, usingGroup string, priority int64, sourceType, messageProtocol string, affinityValues []string) ([]string, []string) {
 	cacheKeys := make([]string, 0, len(affinityValues))
 	cacheKeySuffixes := make([]string, 0, len(affinityValues))
 	seen := make(map[string]struct{}, len(affinityValues))
@@ -372,7 +381,7 @@ func buildChannelAffinityCacheKeys(rule operation_setting.ChannelAffinityRule, m
 			}
 			cacheValue += ":" + affinityValue
 		}
-		cacheKeySuffix := buildChannelAffinityCacheKeySuffix(rule, modelName, usingGroup, cacheValue)
+		cacheKeySuffix := buildChannelAffinityCacheKeySuffix(rule, modelName, usingGroup, priority, cacheValue)
 		if _, exists := seen[cacheKeySuffix]; exists {
 			continue
 		}
@@ -395,16 +404,17 @@ func setChannelAffinityContext(c *gin.Context, meta channelAffinityMeta) {
 	c.Set(ginKeyChannelAffinityMeta, meta)
 }
 
-func updateChannelAffinitySelectedGroup(c *gin.Context, selectedGroup string) {
+func updateChannelAffinitySelection(c *gin.Context, selectedGroup string, selectedPriority int64) {
 	if c == nil || selectedGroup == "" {
 		return
 	}
 	meta, ok := getChannelAffinityMeta(c)
-	if !ok || meta.UsingGroup == selectedGroup {
+	if !ok || (meta.UsingGroup == selectedGroup && meta.Priority == selectedPriority) {
 		return
 	}
 
 	meta.UsingGroup = selectedGroup
+	meta.Priority = selectedPriority
 	setting := operation_setting.GetChannelAffinitySetting()
 	if setting != nil && setting.SwitchOnSuccess {
 		rule := operation_setting.ChannelAffinityRule{
@@ -412,12 +422,13 @@ func updateChannelAffinitySelectedGroup(c *gin.Context, selectedGroup string) {
 			IncludeUsingGroup: meta.IncludeUsingGroup,
 			IncludeModelName:  meta.IncludeModelName,
 			IncludeRuleName:   meta.IncludeRuleName,
+			IncludePriority:   meta.IncludePriority,
 		}
 		affinityValues := meta.AffinityValues
 		if len(affinityValues) == 0 && meta.AffinityValue != "" {
 			affinityValues = []string{meta.AffinityValue}
 		}
-		cacheKeys, _ := buildChannelAffinityCacheKeys(rule, meta.ModelName, selectedGroup, meta.KeySourceType, meta.MessageProtocol, affinityValues)
+		cacheKeys, _ := buildChannelAffinityCacheKeys(rule, meta.ModelName, selectedGroup, selectedPriority, meta.KeySourceType, meta.MessageProtocol, affinityValues)
 		if len(cacheKeys) > 0 {
 			meta.CacheKey = cacheKeys[0]
 			meta.CacheKeys = cacheKeys
@@ -428,6 +439,9 @@ func updateChannelAffinitySelectedGroup(c *gin.Context, selectedGroup string) {
 		if info, ok := anyInfo.(map[string]interface{}); ok {
 			info["using_group"] = selectedGroup
 			info["selected_group"] = selectedGroup
+			if meta.IncludePriority {
+				info["priority"] = selectedPriority
+			}
 			c.Set(ginKeyChannelAffinityLogInfo, info)
 		}
 	}
@@ -625,7 +639,7 @@ func ApplyChannelAffinityOverrideTemplate(c *gin.Context, paramOverride map[stri
 	return mergedParam, true
 }
 
-func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup string) (int, bool) {
+func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup string, priority int64) (int, bool) {
 	setting := operation_setting.GetChannelAffinitySetting()
 	if setting == nil || !setting.Enabled {
 		return 0, false
@@ -688,7 +702,7 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup 
 		if ttlSeconds <= 0 {
 			ttlSeconds = setting.DefaultTTLSeconds
 		}
-		cacheKeys, cacheKeySuffixes := buildChannelAffinityCacheKeys(rule, modelName, usingGroup, usedSource.Type, messageProtocol, affinityValues)
+		cacheKeys, cacheKeySuffixes := buildChannelAffinityCacheKeys(rule, modelName, usingGroup, priority, usedSource.Type, messageProtocol, affinityValues)
 		if len(cacheKeys) == 0 {
 			continue
 		}
@@ -702,6 +716,8 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup 
 			IncludeUsingGroup: rule.IncludeUsingGroup,
 			IncludeModelName:  rule.IncludeModelName,
 			IncludeRuleName:   rule.IncludeRuleName,
+			IncludePriority:   rule.IncludePriority,
+			Priority:          priority,
 			SkipRetry:         rule.SkipRetryOnFailure,
 			ParamTemplate:     cloneStringAnyMap(rule.ParamOverrideTemplate),
 			KeySourceType:     strings.TrimSpace(usedSource.Type),
@@ -729,6 +745,14 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup 
 		return 0, false
 	}
 	return 0, false
+}
+
+func IsChannelAffinityPriorityScoped(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	meta, ok := getChannelAffinityMeta(c)
+	return ok && meta.IncludePriority
 }
 
 func ShouldSkipRetryAfterChannelAffinityFailure(c *gin.Context) bool {
@@ -811,6 +835,9 @@ func MarkChannelAffinityUsed(c *gin.Context, selectedGroup string, channelID int
 	}
 	if meta.MessageProtocol != "" {
 		info["message_protocol"] = meta.MessageProtocol
+	}
+	if meta.IncludePriority {
+		info["priority"] = meta.Priority
 	}
 	c.Set(ginKeyChannelAffinityLogInfo, info)
 }

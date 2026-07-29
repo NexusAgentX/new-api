@@ -2342,6 +2342,7 @@
     "Incidents": "インシデント",
     "Include Group": "グループを含む",
     "Include Model": "モデルを含む",
+    "Include Priority": "優先度を含める",
     "Include Rule Name": "ルール名を含む",
     "Includes a credit limit of {{credit}}": "{{credit}} の与信限度額を含む",
     "Includes request rules": "リクエストルールを含む",

@@ -25,6 +25,7 @@ type ChannelAffinityRule struct {
 	IncludeUsingGroup bool `json:"include_using_group"`
 	IncludeModelName  bool `json:"include_model_name"`
 	IncludeRuleName   bool `json:"include_rule_name"`
+	IncludePriority   bool `json:"include_priority"`
 }
 
 type ChannelAffinitySetting struct {
@@ -129,6 +130,7 @@ var channelAffinitySetting = ChannelAffinitySetting{
 			SkipRetryOnFailure:    true,
 			IncludeUsingGroup:     true,
 			IncludeRuleName:       true,
+			IncludePriority:       true,
 			UserAgentInclude:      nil,
 		},
 		{
@@ -144,6 +146,7 @@ var channelAffinitySetting = ChannelAffinitySetting{
 			SkipRetryOnFailure:    true,
 			IncludeUsingGroup:     true,
 			IncludeRuleName:       true,
+			IncludePriority:       true,
 			UserAgentInclude:      nil,
 		},
 	},

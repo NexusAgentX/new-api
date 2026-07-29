@@ -98,6 +98,7 @@ export const RULE_TEMPLATES: Record<string, RuleTemplate> = {
     include_using_group: true,
     include_model_name: false,
     include_rule_name: true,
+    include_priority: true,
   },
   claudeCli: {
     name: 'claude cli trace',
@@ -113,6 +114,7 @@ export const RULE_TEMPLATES: Record<string, RuleTemplate> = {
     include_using_group: true,
     include_model_name: false,
     include_rule_name: true,
+    include_priority: true,
   },
 }
 
