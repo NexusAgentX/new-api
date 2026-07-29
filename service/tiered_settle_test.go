@@ -4,11 +4,13 @@ import (
 	"math"
 	"math/rand"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
@@ -52,6 +54,9 @@ func makeRelayInfo(expr string, groupRatio float64, estPrompt, estCompletion int
 	return &relaycommon.RelayInfo{
 		TieredBillingSnapshot: snap,
 		FinalPreConsumedQuota: snap.EstimatedQuotaAfterGroup,
+		PriceData: types.PriceData{
+			GroupRatioInfo: types.GroupRatioInfo{GroupRatio: groupRatio},
+		},
 	}
 }
 
@@ -72,6 +77,9 @@ func TestTryTieredSettleUsesFrozenRequestInput(t *testing.T) {
 			EstimatedQuotaAfterGroup:  50,
 			QuotaPerUnit:              testQuotaPerUnit,
 		},
+		PriceData: types.PriceData{
+			GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1},
+		},
 		BillingRequestInput: &billingexpr.RequestInput{
 			Body: []byte(`{"service_tier":"fast"}`),
 		},
@@ -90,7 +98,7 @@ func TestTryTieredSettleUsesFrozenRequestInput(t *testing.T) {
 	}
 }
 
-func TestTryTieredSettleHonorsFrozenAllowZeroQuota(t *testing.T) {
+func TestTryTieredSettleHonorsFinalGroupAllowZeroQuota(t *testing.T) {
 	tests := []struct {
 		name           string
 		allowZeroQuota bool
@@ -103,38 +111,16 @@ func TestTryTieredSettleHonorsFrozenAllowZeroQuota(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			relayInfo := makeRelayInfo(`tier("base", p)`, 0.0001, 1, 0)
-			relayInfo.TieredBillingSnapshot.AllowZeroQuota = tt.allowZeroQuota
+			relayInfo.TieredBillingSnapshot.AllowZeroQuota = !tt.allowZeroQuota
+			relayInfo.PriceData.GroupRatioInfo.AllowZeroQuota = tt.allowZeroQuota
 
 			ok, quota, result := TryTieredSettle(relayInfo, billingexpr.TokenParams{P: 1, Len: 1})
 
 			require.True(t, ok)
 			require.NotNil(t, result)
 			assert.Equal(t, tt.want, quota)
+			assert.Equal(t, tt.allowZeroQuota, relayInfo.TieredBillingSnapshot.AllowZeroQuota)
 		})
-	}
-}
-
-func TestTryTieredSettleFallsBackToFrozenPreConsumeOnExprError(t *testing.T) {
-	relayInfo := &relaycommon.RelayInfo{
-		FinalPreConsumedQuota: 321,
-		TieredBillingSnapshot: &billingexpr.BillingSnapshot{
-			BillingMode:              "tiered_expr",
-			ExprString:               `invalid +-+ expr`,
-			ExprHash:                 billingexpr.ExprHashString(`invalid +-+ expr`),
-			GroupRatio:               1.0,
-			EstimatedQuotaAfterGroup: 123,
-		},
-	}
-
-	ok, quota, result := TryTieredSettle(relayInfo, billingexpr.TokenParams{P: 100})
-	if !ok {
-		t.Fatal("expected tiered settle to apply")
-	}
-	if quota != 321 {
-		t.Fatalf("quota = %d, want 321", quota)
-	}
-	if result != nil {
-		t.Fatalf("result = %#v, want nil", result)
 	}
 }
 
@@ -580,6 +566,121 @@ func TestTryTieredSettleUsesFinalGroupAfterRetry(t *testing.T) {
 	}
 }
 
+func TestPrepareTieredBillingForSelectedGroupRaisesWalletReservationForMoreExpensiveGroup(t *testing.T) {
+	truncate(t)
+	gin.SetMode(gin.TestMode)
+
+	const userID = 700
+	seedUser(t, userID, 500_000)
+
+	const expr = `tier("base", p)`
+	relayInfo := &relaycommon.RelayInfo{
+		UserId:          userID,
+		IsPlayground:    true,
+		OriginModelName: "gpt-test",
+		UserSetting: dto.UserSetting{
+			BillingPreference: "wallet_only",
+		},
+		TieredBillingSnapshot: &billingexpr.BillingSnapshot{
+			BillingMode:               "tiered_expr",
+			ExprString:                expr,
+			ExprHash:                  billingexpr.ExprHashString(expr),
+			GroupRatio:                0.10,
+			EstimatedQuotaBeforeGroup: 500_000,
+			EstimatedQuotaAfterGroup:  50_000,
+			QuotaPerUnit:              testQuotaPerUnit,
+		},
+		PriceData: types.PriceData{
+			GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 0.10},
+		},
+	}
+	ctx, _ := gin.CreateTestContext(nil)
+
+	require.Nil(t, PreConsumeBilling(ctx, 50_000, relayInfo))
+	assert.Equal(t, 50_000, relayInfo.FinalPreConsumedQuota)
+
+	relayInfo.PriceData.GroupRatioInfo.GroupRatio = 0.20
+	require.Nil(t, PrepareTieredBillingForSelectedGroup(ctx, relayInfo))
+	assert.Equal(t, 100_000, relayInfo.FinalPreConsumedQuota)
+	assert.Equal(t, 100_000, relayInfo.Billing.GetPreConsumedQuota())
+	assert.Equal(t, 0.20, relayInfo.TieredBillingSnapshot.GroupRatio)
+	assert.Equal(t, 100_000, relayInfo.TieredBillingSnapshot.EstimatedQuotaAfterGroup)
+
+	userQuota, err := model.GetUserQuota(userID, false)
+	require.NoError(t, err)
+	assert.Equal(t, 400_000, userQuota)
+}
+
+func TestPrepareTieredBillingForSelectedGroupStartsSubscriptionAfterFreeGroup(t *testing.T) {
+	truncate(t)
+	gin.SetMode(gin.TestMode)
+
+	const (
+		userID         = 701
+		planID         = 702
+		subscriptionID = 703
+	)
+	seedUser(t, userID, 0)
+	plan := &model.SubscriptionPlan{
+		Id:          planID,
+		Title:       "retry billing",
+		Enabled:     true,
+		TotalAmount: 500_000,
+	}
+	plan.NormalizeDefaults()
+	require.NoError(t, model.DB.Create(plan).Error)
+	require.NoError(t, model.DB.Create(&model.UserSubscription{
+		Id:          subscriptionID,
+		UserId:      userID,
+		PlanId:      planID,
+		AmountTotal: 500_000,
+		StartTime:   time.Now().Add(-time.Hour).Unix(),
+		EndTime:     time.Now().Add(time.Hour).Unix(),
+		Status:      "active",
+	}).Error)
+
+	const expr = `tier("base", p)`
+	relayInfo := &relaycommon.RelayInfo{
+		UserId:          userID,
+		IsPlayground:    true,
+		RequestId:       "tiered-free-to-paid-retry",
+		OriginModelName: "gpt-test",
+		UserSetting: dto.UserSetting{
+			BillingPreference: "subscription_only",
+		},
+		TieredBillingSnapshot: &billingexpr.BillingSnapshot{
+			BillingMode:               "tiered_expr",
+			ExprString:                expr,
+			ExprHash:                  billingexpr.ExprHashString(expr),
+			GroupRatio:                0,
+			EstimatedQuotaBeforeGroup: 500_000,
+			QuotaPerUnit:              testQuotaPerUnit,
+		},
+		PriceData: types.PriceData{
+			GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 0.20},
+		},
+	}
+	ctx, _ := gin.CreateTestContext(nil)
+
+	require.Nil(t, PrepareTieredBillingForSelectedGroup(ctx, relayInfo))
+	require.NotNil(t, relayInfo.Billing)
+	assert.Equal(t, BillingSourceSubscription, relayInfo.BillingSource)
+	assert.Equal(t, subscriptionID, relayInfo.SubscriptionId)
+	assert.Equal(t, 100_000, relayInfo.FinalPreConsumedQuota)
+	assert.Equal(t, 0.20, relayInfo.TieredBillingSnapshot.GroupRatio)
+	assert.Equal(t, 100_000, relayInfo.TieredBillingSnapshot.EstimatedQuotaAfterGroup)
+
+	ok, quota, result := TryTieredSettle(relayInfo, billingexpr.TokenParams{P: 1_200_000})
+	require.True(t, ok)
+	require.NotNil(t, result)
+	assert.Equal(t, 120_000, quota)
+	require.NoError(t, SettleBilling(ctx, relayInfo, quota))
+
+	var subscription model.UserSubscription
+	require.NoError(t, model.DB.First(&subscription, subscriptionID).Error)
+	assert.Equal(t, int64(120_000), subscription.AmountUsed)
+}
+
 func TestTryTieredSettle_GroupRatioScaling(t *testing.T) {
 	info := makeRelayInfo(flatExpr, 1.5, 1000, 500)
 
@@ -678,6 +779,50 @@ func TestTryTieredSettle_RatioMode_EmptyBillingMode(t *testing.T) {
 // Fallback tests
 // ---------------------------------------------------------------------------
 
+func TestTryTieredSettleErrorFallbackUsesFinalGroupEstimate(t *testing.T) {
+	const expr = `p == 7 ? tier("base", param("bad")) : tier("base", p)`
+	require.NoError(t, billing_setting.SmokeTestExpr(expr))
+	requestInput := billingexpr.RequestInput{Body: []byte(`{"bad":{}}`)}
+	_, _, err := billingexpr.RunExprWithRequest(expr, billingexpr.TokenParams{P: 1000}, requestInput)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name            string
+		finalGroupRatio float64
+		wantQuota       int
+	}{
+		{name: "cheaper final group", finalGroupRatio: 0.5, wantQuota: 50},
+		{name: "free final group", finalGroupRatio: 0, wantQuota: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			relayInfo := &relaycommon.RelayInfo{
+				FinalPreConsumedQuota: 100,
+				TieredBillingSnapshot: &billingexpr.BillingSnapshot{
+					BillingMode:               "tiered_expr",
+					ExprString:                expr,
+					ExprHash:                  billingexpr.ExprHashString(expr),
+					GroupRatio:                1,
+					EstimatedQuotaBeforeGroup: 100,
+					EstimatedQuotaAfterGroup:  100,
+				},
+				BillingRequestInput: &requestInput,
+				PriceData: types.PriceData{
+					GroupRatioInfo: types.GroupRatioInfo{GroupRatio: tt.finalGroupRatio},
+				},
+			}
+
+			ok, quota, result := TryTieredSettle(relayInfo, billingexpr.TokenParams{P: 7})
+
+			require.True(t, ok)
+			require.Nil(t, result)
+			assert.Equal(t, tt.wantQuota, quota)
+			assert.Equal(t, tt.wantQuota, relayInfo.TieredBillingSnapshot.EstimatedQuotaAfterGroup)
+		})
+	}
+}
+
 func TestTryTieredSettle_ErrorFallbackToEstimatedQuotaAfterGroup(t *testing.T) {
 	info := &relaycommon.RelayInfo{
 		FinalPreConsumedQuota: 0,
@@ -687,6 +832,9 @@ func TestTryTieredSettle_ErrorFallbackToEstimatedQuotaAfterGroup(t *testing.T) {
 			ExprHash:                 billingexpr.ExprHashString(`invalid expr!!!`),
 			GroupRatio:               1.0,
 			EstimatedQuotaAfterGroup: 999,
+		},
+		PriceData: types.PriceData{
+			GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1},
 		},
 	}
 

@@ -157,9 +157,9 @@ On save, the expression is validated:
 When a request arrives and the model uses `tiered_expr` billing:
 1. Loads expression from `billing_setting.GetBillingExpr()`
 2. Builds `RequestInput` (headers + body) for `param()` / `header()` functions
-3. Runs expression with estimated tokens: `RunExprWithRequest(expr, {P, C}, requestInput)`
+3. Runs expression with estimated tokens: `RunExprWithRequest(expr, {P, C}, requestInput)`. When the client omits its output-token limit, the default completion estimate is included in the group-independent snapshot even if the initial group is free, so a later paid-group retry can reserve the same estimate as a request that started in that paid group.
 4. Converts output to quota: `rawCost / 1,000,000 * QuotaPerUnit`
-5. Creates `BillingSnapshot` and stores it on `RelayInfo`. Expression and request state stay frozen for settlement. An auto-group retry refreshes group-dependent fields from the selected group before the next upstream attempt. If a free initial group skipped pre-consume and the retry selects a paid group, the billing session is created before that attempt. If an existing session moves to a more expensive group, its reservation is raised to that group's estimate before sending; cheaper groups are refunded only after actual usage is settled.
+5. Creates `BillingSnapshot` and stores it on `RelayInfo`. Expression and request state stay frozen for settlement; an auto-group retry refreshes group-dependent fields from the selected group before the next upstream attempt. If a free initial group skipped pre-consume and the retry selects a paid group, the billing session is created before that attempt. If an existing session moves to a more expensive group, its reservation is raised to that group's estimate before sending; cheaper groups are refunded only after actual usage is settled.
 
 ### 4. Settlement (Actual Billing)
 
@@ -176,6 +176,7 @@ After the upstream response returns with actual token usage:
    - Uses the captured `BillingSnapshot`, whose group-dependent fields have been refreshed from the final selected group
    - Re-runs the expression with actual token counts
    - Converts via `quotaConversion()` (version-dispatched)
+   - If runtime evaluation fails, falls back to the refreshed final-group estimate so a cheaper or free retry still refunds the excess reservation
    - Returns actual quota
 
 ### 5. Log Display
@@ -222,7 +223,7 @@ quota = round(rawQuota)
 ```
 
 This matches the per-call billing pattern: `rawQuota = modelPrice * QuotaPerUnit * groupRatio`.
-After conversion, the billing group's `group_allow_zero_quota` policy controls only the quota representation floor: when `rawQuota > 0` rounds to `0`, groups that disallow zero quota charge the minimum `1` quota point. Exact zero-cost requests, zero-ratio groups, and requests without billable usage remain free. The policy is frozen in `BillingSnapshot.AllowZeroQuota` during pre-consume so settlement cannot change behavior mid-request. It does not alter expression coefficients or provider prices.
+After conversion, the billing group's `group_allow_zero_quota` policy controls only the quota representation floor: when `rawQuota > 0` rounds to `0`, groups that disallow zero quota charge the minimum `1` quota point. Exact zero-cost requests, zero-ratio groups, and requests without billable usage remain free. `BillingSnapshot.AllowZeroQuota` captures the selected group's policy during pre-consume and is refreshed together with `GroupRatio` if an auto-group retry selects a different final group. It does not alter expression coefficients or provider prices.
 
 ### Expression Versioning
 

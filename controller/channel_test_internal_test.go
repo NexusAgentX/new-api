@@ -228,6 +228,9 @@ func TestSettleTestQuotaUsesTieredBilling(t *testing.T) {
 			QuotaPerUnit:  common.QuotaPerUnit,
 			ExprVersion:   1,
 		},
+		PriceData: types.PriceData{
+			GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1},
+		},
 		BillingRequestInput: &billingexpr.RequestInput{
 			Body: []byte(`{"stream":true}`),
 		},

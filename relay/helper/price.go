@@ -287,7 +287,7 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptT
 	}
 
 	estimatedCompletionTokens := meta.MaxTokens
-	if estimatedCompletionTokens == 0 && groupRatioInfo.GroupRatio != 0 {
+	if estimatedCompletionTokens == 0 {
 		estimatedCompletionTokens = defaultTieredPreConsumeMaxTokens
 	}
 
