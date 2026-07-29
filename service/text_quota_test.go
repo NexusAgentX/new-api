@@ -726,11 +726,16 @@ func TestTryTieredSettleRecordsClampOnOverflow(t *testing.T) {
 	relayInfo := &relaycommon.RelayInfo{
 		OriginModelName: "overflow-model",
 		TieredBillingSnapshot: &billingexpr.BillingSnapshot{
-			BillingMode:  "tiered_expr",
-			ExprString:   exprStr,
-			ExprHash:     billingexpr.ExprHashString(exprStr),
-			GroupRatio:   1,
-			QuotaPerUnit: 500_000,
+			BillingMode:               "tiered_expr",
+			ExprString:                exprStr,
+			ExprHash:                  billingexpr.ExprHashString(exprStr),
+			GroupRatio:                0.0001,
+			EstimatedQuotaBeforeGroup: 3_000_000_000,
+			EstimatedQuotaAfterGroup:  300_000,
+			QuotaPerUnit:              500_000,
+		},
+		PriceData: types.PriceData{
+			GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1},
 		},
 	}
 
@@ -741,20 +746,26 @@ func TestTryTieredSettleRecordsClampOnOverflow(t *testing.T) {
 	require.Equal(t, math.MaxInt32, quota, "oversized settlement must clamp, never wrap negative")
 	require.NotNil(t, relayInfo.QuotaClamp, "clamp must be recorded on RelayInfo for admin auditing")
 	require.Equal(t, common.QuotaClampOverflow, relayInfo.QuotaClamp.Kind)
+	require.Same(t, result.Clamp, relayInfo.QuotaClamp, "the charged settlement clamp must win over the unused estimate clamp")
 }
 
-// TestTryTieredSettleNoClampInRange confirms an in-range settlement leaves
-// RelayInfo.QuotaClamp nil.
-func TestTryTieredSettleNoClampInRange(t *testing.T) {
+// TestTryTieredSettleDoesNotRecordUnusedEstimateClamp confirms an in-range
+// settlement does not audit a saturated estimate that was never charged.
+func TestTryTieredSettleDoesNotRecordUnusedEstimateClamp(t *testing.T) {
 	exprStr := `tier("base", p * 2 + c * 10)`
 	relayInfo := &relaycommon.RelayInfo{
 		OriginModelName: "in-range-model",
 		TieredBillingSnapshot: &billingexpr.BillingSnapshot{
-			BillingMode:  "tiered_expr",
-			ExprString:   exprStr,
-			ExprHash:     billingexpr.ExprHashString(exprStr),
-			GroupRatio:   1,
-			QuotaPerUnit: 500_000,
+			BillingMode:               "tiered_expr",
+			ExprString:                exprStr,
+			ExprHash:                  billingexpr.ExprHashString(exprStr),
+			GroupRatio:                0.0001,
+			EstimatedQuotaBeforeGroup: 3_000_000_000,
+			EstimatedQuotaAfterGroup:  300_000,
+			QuotaPerUnit:              500_000,
+		},
+		PriceData: types.PriceData{
+			GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1},
 		},
 	}
 
@@ -762,7 +773,34 @@ func TestTryTieredSettleNoClampInRange(t *testing.T) {
 
 	require.True(t, ok)
 	require.NotNil(t, result)
-	require.Nil(t, relayInfo.QuotaClamp, "in-range settlement must not record a clamp")
+	require.Nil(t, result.Clamp)
+	require.Nil(t, relayInfo.QuotaClamp, "an unused estimate clamp must not be recorded as a charged saturation")
+}
+
+func TestTryTieredSettleRecordsEstimateClampWhenFallbackIsCharged(t *testing.T) {
+	exprStr := `invalid expr!!!`
+	relayInfo := &relaycommon.RelayInfo{
+		TieredBillingSnapshot: &billingexpr.BillingSnapshot{
+			BillingMode:               "tiered_expr",
+			ExprString:                exprStr,
+			ExprHash:                  billingexpr.ExprHashString(exprStr),
+			GroupRatio:                0.0001,
+			EstimatedQuotaBeforeGroup: 3_000_000_000,
+			EstimatedQuotaAfterGroup:  300_000,
+		},
+		PriceData: types.PriceData{
+			GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1},
+		},
+	}
+
+	ok, quota, result := TryTieredSettle(relayInfo, billingexpr.TokenParams{P: 1000})
+
+	require.True(t, ok)
+	require.Nil(t, result)
+	require.Equal(t, common.MaxQuota, quota)
+	require.NotNil(t, relayInfo.QuotaClamp)
+	require.Equal(t, common.QuotaClampOverflow, relayInfo.QuotaClamp.Kind)
+	require.Equal(t, 3_000_000_000.0, relayInfo.QuotaClamp.Original)
 }
 
 func TestCalculateTextQuotaSummaryFixedPriceAppliesImageCountOnceAndAllowsOverride(t *testing.T) {

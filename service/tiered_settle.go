@@ -1,9 +1,14 @@
 package service
 
 import (
+	"net/http"
+
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/types"
+	"github.com/gin-gonic/gin"
 )
 
 // TieredResultWrapper wraps billingexpr.TieredResult for use at the service layer.
@@ -90,13 +95,69 @@ func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, usedVa
 	}
 }
 
+func refreshTieredBillingGroup(relayInfo *relaycommon.RelayInfo) (*billingexpr.BillingSnapshot, *common.QuotaClamp) {
+	if relayInfo == nil {
+		return nil, nil
+	}
+	snap := relayInfo.TieredBillingSnapshot
+	if snap == nil || snap.BillingMode != "tiered_expr" {
+		return nil, nil
+	}
+
+	groupRatioInfo := relayInfo.PriceData.GroupRatioInfo
+	if snap.GroupRatio == groupRatioInfo.GroupRatio && snap.AllowZeroQuota == groupRatioInfo.AllowZeroQuota {
+		return snap, nil
+	}
+
+	snap.GroupRatio = groupRatioInfo.GroupRatio
+	snap.AllowZeroQuota = groupRatioInfo.AllowZeroQuota
+	estimatedQuotaAfterGroup := snap.EstimatedQuotaBeforeGroup * snap.GroupRatio
+	estimatedQuota, clamp := common.QuotaRoundChecked(estimatedQuotaAfterGroup)
+	snap.EstimatedQuotaAfterGroup = common.ApplyMinimumBillableQuota(
+		estimatedQuota,
+		estimatedQuotaAfterGroup > 0,
+		snap.AllowZeroQuota,
+	)
+	return snap, clamp
+}
+
+// PrepareTieredBillingForSelectedGroup refreshes routing-dependent billing
+// state before an upstream attempt. An existing session reserves any higher
+// estimate before sending. If the initial group was free and skipped
+// pre-consume, switching to a paid group creates the session at that point.
+func PrepareTieredBillingForSelectedGroup(c *gin.Context, relayInfo *relaycommon.RelayInfo) *types.NewAPIError {
+	snap, estimatedQuotaClamp := refreshTieredBillingGroup(relayInfo)
+	if snap == nil || snap.GroupRatio == 0 {
+		return nil
+	}
+
+	if estimatedQuotaClamp != nil {
+		noteQuotaClamp(relayInfo, estimatedQuotaClamp)
+		return types.NewErrorWithStatusCode(
+			estimatedQuotaClamp,
+			types.ErrorCodeModelPriceError,
+			http.StatusBadRequest,
+			types.ErrOptionWithSkipRetry(),
+		)
+	}
+
+	if relayInfo.Billing == nil {
+		return PreConsumeBilling(c, snap.EstimatedQuotaAfterGroup, relayInfo)
+	}
+	if err := relayInfo.Billing.Reserve(snap.EstimatedQuotaAfterGroup); err != nil {
+		return types.NewError(err, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
+	}
+	relayInfo.FinalPreConsumedQuota = relayInfo.Billing.GetPreConsumedQuota()
+	return nil
+}
+
 // TryTieredSettle checks if the request uses tiered_expr billing and, if so,
-// computes the actual quota using the frozen BillingSnapshot. Returns:
+// computes the actual quota using the captured billing state and final group. Returns:
 //   - ok=true, quota, result  when tiered billing applies
 //   - ok=false, 0, nil        when it doesn't (caller should fall through to existing logic)
 func TryTieredSettle(relayInfo *relaycommon.RelayInfo, params billingexpr.TokenParams) (ok bool, quota int, result *billingexpr.TieredResult) {
-	snap := relayInfo.TieredBillingSnapshot
-	if snap == nil || snap.BillingMode != "tiered_expr" {
+	snap, estimatedQuotaClamp := refreshTieredBillingGroup(relayInfo)
+	if snap == nil {
 		return false, 0, nil
 	}
 
@@ -110,6 +171,7 @@ func TryTieredSettle(relayInfo *relaycommon.RelayInfo, params billingexpr.TokenP
 		quota = relayInfo.FinalPreConsumedQuota
 		if quota <= 0 {
 			quota = snap.EstimatedQuotaAfterGroup
+			noteQuotaClamp(relayInfo, estimatedQuotaClamp)
 		}
 		return true, quota, nil
 	}
