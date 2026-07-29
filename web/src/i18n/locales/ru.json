@@ -2359,6 +2359,7 @@
     "Incidents": "Инциденты",
     "Include Group": "Включить группу",
     "Include Model": "Включить модель",
+    "Include Priority": "Учитывать приоритет",
     "Include Rule Name": "Включить имя правила",
     "Includes a credit limit of {{credit}}": "Включает кредитный лимит {{credit}}",
     "Includes request rules": "Включает правила запросов",

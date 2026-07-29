@@ -603,6 +603,7 @@ export function ChannelAffinitySection(props: Props) {
                     rule.include_using_group && t('Group'),
                     rule.include_model_name && t('Model'),
                     rule.include_rule_name && t('Rule'),
+                    rule.include_priority && t('Priority'),
                   ].filter(Boolean) as string[]
                   if (scopeItems.length === 0) return '-'
                   return <RuleBadgeList items={scopeItems} />

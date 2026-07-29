@@ -118,10 +118,10 @@ func TestGetPreferredChannelByAffinityMessageHashHonorsExplicitSource(t *testing
 	withChannelAffinityRule(t, rule)
 
 	ctx := newChannelAffinityMessageHashContext(t, "/v1/chat/completions", `{"model":"gpt-5","prompt_cache_key":"explicit-session","messages":[{"role":"user","content":"same prompt"}]}`)
-	explicitSuffix := buildChannelAffinityCacheKeySuffix(rule, "gpt-5", "default", "explicit-session")
+	explicitSuffix := buildChannelAffinityCacheKeySuffix(rule, "gpt-5", "default", 0, "explicit-session")
 	messageHashes, ok := extractChannelAffinityMessageHashes(ctx)
 	require.True(t, ok)
-	hashKeys, _ := buildChannelAffinityCacheKeys(rule, "gpt-5", "default", channelAffinityMessageHashSource, messageHashes.Protocol, messageHashes.Values)
+	hashKeys, _ := buildChannelAffinityCacheKeys(rule, "gpt-5", "default", 0, channelAffinityMessageHashSource, messageHashes.Protocol, messageHashes.Values)
 	cache := getChannelAffinityCache()
 	require.NoError(t, cache.SetWithTTL(explicitSuffix, 1201, time.Minute))
 	require.NoError(t, cache.SetWithTTL(hashKeys[0], 1202, time.Minute))
@@ -129,7 +129,7 @@ func TestGetPreferredChannelByAffinityMessageHashHonorsExplicitSource(t *testing
 		_, _ = cache.DeleteMany(append([]string{explicitSuffix}, hashKeys...))
 	})
 
-	channelID, found := GetPreferredChannelByAffinity(ctx, "gpt-5", "default")
+	channelID, found := GetPreferredChannelByAffinity(ctx, "gpt-5", "default", 0)
 	require.True(t, found)
 	require.Equal(t, 1201, channelID)
 	meta, ok := getChannelAffinityMeta(ctx)
@@ -146,7 +146,7 @@ func TestChannelAffinityMessageHashInheritsInitialAnchorAcrossTurns(t *testing.T
 	firstHashes, ok := extractChannelAffinityMessageHashes(firstCtx)
 	require.True(t, ok)
 	require.Len(t, firstHashes.Values, 1)
-	firstKeys, firstSuffixes := buildChannelAffinityCacheKeys(rule, "gpt-5", "default", channelAffinityMessageHashSource, firstHashes.Protocol, firstHashes.Values)
+	firstKeys, firstSuffixes := buildChannelAffinityCacheKeys(rule, "gpt-5", "default", 0, channelAffinityMessageHashSource, firstHashes.Protocol, firstHashes.Values)
 	require.Len(t, firstKeys, 1)
 
 	cache := getChannelAffinityCache()
@@ -154,14 +154,14 @@ func TestChannelAffinityMessageHashInheritsInitialAnchorAcrossTurns(t *testing.T
 
 	secondBody := `{"model":"gpt-5","messages":[{"role":"system","content":"Be concise"},{"role":"user","content":"Hello"},{"role":"assistant","content":"Hi"},{"role":"user","content":"Continue"}]}`
 	secondCtx := newChannelAffinityMessageHashContext(t, "/v1/chat/completions", secondBody)
-	channelID, found := GetPreferredChannelByAffinity(secondCtx, "gpt-5", "default")
+	channelID, found := GetPreferredChannelByAffinity(secondCtx, "gpt-5", "default", 0)
 	require.True(t, found)
 	require.Equal(t, 1203, channelID)
 
 	secondHashes, ok := extractChannelAffinityMessageHashes(secondCtx)
 	require.True(t, ok)
 	require.Len(t, secondHashes.Values, 2)
-	secondKeys, secondSuffixes := buildChannelAffinityCacheKeys(rule, "gpt-5", "default", channelAffinityMessageHashSource, secondHashes.Protocol, secondHashes.Values)
+	secondKeys, secondSuffixes := buildChannelAffinityCacheKeys(rule, "gpt-5", "default", 0, channelAffinityMessageHashSource, secondHashes.Protocol, secondHashes.Values)
 	require.Len(t, secondKeys, 2)
 	require.NotEqual(t, firstKeys[0], secondKeys[0])
 
@@ -208,14 +208,14 @@ func TestChannelAffinityMessageHashSeparatesProtocolAndGroup(t *testing.T) {
 	require.Equal(t, "gemini", geminiHashes.Protocol)
 	require.NotEqual(t, openAIHashes.Values[0], geminiHashes.Values[0])
 
-	openAIKeys, openAISuffixes := buildChannelAffinityCacheKeys(openAIRule, "gpt-5", "group-a", channelAffinityMessageHashSource, openAIHashes.Protocol, openAIHashes.Values)
-	groupBKeys, groupBSuffixes := buildChannelAffinityCacheKeys(openAIRule, "gpt-5", "group-b", channelAffinityMessageHashSource, openAIHashes.Protocol, openAIHashes.Values)
+	openAIKeys, openAISuffixes := buildChannelAffinityCacheKeys(openAIRule, "gpt-5", "group-a", 0, channelAffinityMessageHashSource, openAIHashes.Protocol, openAIHashes.Values)
+	groupBKeys, groupBSuffixes := buildChannelAffinityCacheKeys(openAIRule, "gpt-5", "group-b", 0, channelAffinityMessageHashSource, openAIHashes.Protocol, openAIHashes.Values)
 	require.NotEqual(t, openAIKeys[0], groupBKeys[0])
 
 	cache := getChannelAffinityCache()
 	require.NoError(t, cache.SetWithTTL(openAISuffixes[0], 1204, time.Minute))
 	groupBContext := newChannelAffinityMessageHashContext(t, "/v1/chat/completions", `{"messages":[{"role":"user","content":"same prompt"}]}`)
-	channelID, found := GetPreferredChannelByAffinity(groupBContext, "gpt-5", "group-b")
+	channelID, found := GetPreferredChannelByAffinity(groupBContext, "gpt-5", "group-b", 0)
 	require.False(t, found)
 	require.Zero(t, channelID)
 	t.Cleanup(func() {
@@ -231,7 +231,7 @@ func TestClearCurrentChannelAffinityCacheDeletesMessageHashAliases(t *testing.T)
 	ctx := newChannelAffinityMessageHashContext(t, "/v1/chat/completions", `{"messages":[{"role":"user","content":"Hello"},{"role":"assistant","content":"Hi"}]}`)
 	hashes, ok := extractChannelAffinityMessageHashes(ctx)
 	require.True(t, ok)
-	keys, suffixes := buildChannelAffinityCacheKeys(rule, "gpt-5", "default", channelAffinityMessageHashSource, hashes.Protocol, hashes.Values)
+	keys, suffixes := buildChannelAffinityCacheKeys(rule, "gpt-5", "default", 0, channelAffinityMessageHashSource, hashes.Protocol, hashes.Values)
 	require.Len(t, keys, 2)
 
 	cache := getChannelAffinityCache()
@@ -242,7 +242,7 @@ func TestClearCurrentChannelAffinityCacheDeletesMessageHashAliases(t *testing.T)
 		_, _ = cache.DeleteMany(keys)
 	})
 
-	channelID, found := GetPreferredChannelByAffinity(ctx, "gpt-5", "default")
+	channelID, found := GetPreferredChannelByAffinity(ctx, "gpt-5", "default", 0)
 	require.True(t, found)
 	require.Equal(t, 1206, channelID)
 	require.True(t, ClearCurrentChannelAffinityCache(ctx))
@@ -261,14 +261,14 @@ func TestChannelAffinityMessageHashDoesNotLogPromptContent(t *testing.T) {
 	ctx := newChannelAffinityMessageHashContext(t, "/v1/chat/completions", `{"messages":[{"role":"user","content":"`+prompt+`"}]}`)
 	hashes, ok := extractChannelAffinityMessageHashes(ctx)
 	require.True(t, ok)
-	keys, suffixes := buildChannelAffinityCacheKeys(rule, "gpt-5", "default", channelAffinityMessageHashSource, hashes.Protocol, hashes.Values)
+	keys, suffixes := buildChannelAffinityCacheKeys(rule, "gpt-5", "default", 0, channelAffinityMessageHashSource, hashes.Protocol, hashes.Values)
 	cache := getChannelAffinityCache()
 	require.NoError(t, cache.SetWithTTL(suffixes[0], 1205, time.Minute))
 	t.Cleanup(func() {
 		_, _ = cache.DeleteMany(keys)
 	})
 
-	channelID, found := GetPreferredChannelByAffinity(ctx, "gpt-5", "default")
+	channelID, found := GetPreferredChannelByAffinity(ctx, "gpt-5", "default", 0)
 	require.True(t, found)
 	require.Equal(t, 1205, channelID)
 	MarkChannelAffinityUsed(ctx, "default", channelID)

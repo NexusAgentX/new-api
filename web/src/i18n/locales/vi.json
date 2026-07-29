@@ -2359,6 +2359,7 @@
     "Incidents": "Sự cố",
     "Include Group": "Bao gồm nhóm",
     "Include Model": "Bao gồm mô hình",
+    "Include Priority": "Bao gồm mức độ ưu tiên",
     "Include Rule Name": "Bao gồm tên quy tắc",
     "Includes a credit limit of {{credit}}": "Bao gồm hạn mức tín dụng {{credit}}",
     "Includes request rules": "Bao gồm quy tắc yêu cầu",

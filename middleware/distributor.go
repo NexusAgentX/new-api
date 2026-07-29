@@ -112,57 +112,31 @@ func Distribute() func(c *gin.Context) {
 					}
 				}
 
-				if usingGroup == "auto" {
-					// Auto-group order is the routing policy. Select the first available
-					// concrete group before applying channel affinity within that group.
-					channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(&service.RetryParam{
-						Ctx:         c,
-						ModelName:   modelRequest.Model,
-						TokenGroup:  usingGroup,
-						RequestPath: c.Request.URL.Path,
-						Retry:       common.GetPointer(0),
-					})
-					if err == nil && channel != nil {
-						if preferredChannelID, found := service.GetPreferredChannelByAffinity(c, modelRequest.Model, selectGroup); found {
-							affinityUsable := false
-							preferred, affinityErr := model.CacheGetChannel(preferredChannelID)
-							if affinityErr == nil && preferred != nil && preferred.Status == common.ChannelStatusEnabled &&
-								channelSupportsRequestPath(preferred, c.Request.URL.Path, modelRequest.Model) &&
-								model.IsChannelEnabledForGroupModel(selectGroup, modelRequest.Model, preferred.Id) {
-								channel = preferred
-								affinityUsable = true
-								service.MarkChannelAffinityUsed(c, selectGroup, preferred.Id)
-							}
-							if !affinityUsable && !service.ShouldKeepChannelAffinityOnChannelDisabled() {
+				// The normal selector owns group and priority policy. Affinity may
+				// override its weighted choice, but only within an enabled scope.
+				channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(&service.RetryParam{
+					Ctx:         c,
+					ModelName:   modelRequest.Model,
+					TokenGroup:  usingGroup,
+					RequestPath: c.Request.URL.Path,
+					Retry:       common.GetPointer(0),
+				})
+				if err == nil && channel != nil {
+					if preferredChannelID, found := service.GetPreferredChannelByAffinity(c, modelRequest.Model, selectGroup, channel.GetPriority()); found {
+						preferred, affinityErr := model.CacheGetChannel(preferredChannelID)
+						preferredAvailable := affinityErr == nil && preferred != nil && preferred.Status == common.ChannelStatusEnabled &&
+							channelSupportsRequestPath(preferred, c.Request.URL.Path, modelRequest.Model) &&
+							model.IsChannelEnabledForGroupModel(selectGroup, modelRequest.Model, preferred.Id)
+						if !preferredAvailable {
+							if !service.ShouldKeepChannelAffinityOnChannelDisabled() {
 								service.ClearCurrentChannelAffinityCache(c)
 							}
-						}
-					}
-				} else {
-					if preferredChannelID, found := service.GetPreferredChannelByAffinity(c, modelRequest.Model, usingGroup); found {
-						affinityUsable := false
-						preferred, affinityErr := model.CacheGetChannel(preferredChannelID)
-						if affinityErr == nil && preferred != nil && preferred.Status == common.ChannelStatusEnabled &&
-							channelSupportsRequestPath(preferred, c.Request.URL.Path, modelRequest.Model) &&
-							model.IsChannelEnabledForGroupModel(usingGroup, modelRequest.Model, preferred.Id) {
+						} else if service.IsChannelAffinityPriorityScoped(c) && preferred.GetPriority() != channel.GetPriority() {
+							// A priority mismatch is a scope miss, not a disabled-channel event.
+						} else {
 							channel = preferred
-							selectGroup = usingGroup
-							affinityUsable = true
-							service.MarkChannelAffinityUsed(c, usingGroup, preferred.Id)
+							service.MarkChannelAffinityUsed(c, selectGroup, preferred.Id)
 						}
-						if !affinityUsable && !service.ShouldKeepChannelAffinityOnChannelDisabled() {
-							service.ClearCurrentChannelAffinityCache(c)
-						}
-					}
-
-					if channel == nil {
-						channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(&service.RetryParam{
-							Ctx:         c,
-							ModelName:   modelRequest.Model,
-							TokenGroup:  usingGroup,
-							RequestPath: c.Request.URL.Path,
-							Retry:       common.GetPointer(0),
-						})
 					}
 				}
 

@@ -2359,6 +2359,7 @@
     "Incidents": "事件",
     "Include Group": "包含分组",
     "Include Model": "包含模型",
+    "Include Priority": "包含优先级",
     "Include Rule Name": "包含规则名",
     "Includes a credit limit of {{credit}}": "含 {{credit}} 信用额度",
     "Includes request rules": "包含请求规则",

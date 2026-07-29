@@ -40,6 +40,7 @@ export interface AffinityRule {
   include_using_group: boolean
   include_model_name: boolean
   include_rule_name: boolean
+  include_priority: boolean
   param_override_template?: Record<string, unknown> | null
 }
 

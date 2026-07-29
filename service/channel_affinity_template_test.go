@@ -205,7 +205,7 @@ func TestGetPreferredChannelByAffinity_RequestHeaderKeySource(t *testing.T) {
 	}
 
 	affinityValue := fmt.Sprintf("header-hit-%d", time.Now().UnixNano())
-	cacheKeySuffix := buildChannelAffinityCacheKeySuffix(rule, "gpt-5", "default", affinityValue)
+	cacheKeySuffix := buildChannelAffinityCacheKeySuffix(rule, "gpt-5", "default", 0, affinityValue)
 
 	cache := getChannelAffinityCache()
 	require.NoError(t, cache.SetWithTTL(cacheKeySuffix, 9528, time.Minute))
@@ -225,7 +225,7 @@ func TestGetPreferredChannelByAffinity_RequestHeaderKeySource(t *testing.T) {
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 	ctx.Request.Header.Set("X-Affinity-Key", affinityValue)
 
-	channelID, found := GetPreferredChannelByAffinity(ctx, "gpt-5", "default")
+	channelID, found := GetPreferredChannelByAffinity(ctx, "gpt-5", "default", 0)
 	require.True(t, found)
 	require.Equal(t, 9528, channelID)
 
@@ -234,6 +234,82 @@ func TestGetPreferredChannelByAffinity_RequestHeaderKeySource(t *testing.T) {
 	require.Equal(t, "request_header", meta.KeySourceType)
 	require.Equal(t, "X-Affinity-Key", meta.KeySourceKey)
 	require.Equal(t, buildChannelAffinityKeyHint(affinityValue), meta.KeyHint)
+}
+
+func TestChannelAffinityCacheKeyScopesByPriority(t *testing.T) {
+	rule := operation_setting.ChannelAffinityRule{
+		Name:              "priority-cache-key",
+		IncludeUsingGroup: true,
+		IncludeRuleName:   true,
+		IncludePriority:   true,
+	}
+
+	lowPriorityKey := buildChannelAffinityCacheKeySuffix(rule, "gpt-5", "default", 100, "session")
+	highPriorityKey := buildChannelAffinityCacheKeySuffix(rule, "gpt-5", "default", 300, "session")
+	require.NotEqual(t, lowPriorityKey, highPriorityKey)
+	require.Contains(t, lowPriorityKey, ":priority=100:")
+	require.Contains(t, highPriorityKey, ":priority=300:")
+
+	rule.IncludePriority = false
+	legacyLowKey := buildChannelAffinityCacheKeySuffix(rule, "gpt-5", "default", 100, "session")
+	legacyHighKey := buildChannelAffinityCacheKeySuffix(rule, "gpt-5", "default", 300, "session")
+	require.Equal(t, legacyLowKey, legacyHighKey)
+}
+
+func TestUpdateChannelAffinitySelectionMovesCacheKeyToSuccessfulPriority(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	affinityValue := fmt.Sprintf("priority-switch-%d", time.Now().UnixNano())
+	rule := operation_setting.ChannelAffinityRule{
+		Name:              "priority-switch",
+		IncludeUsingGroup: true,
+		IncludeRuleName:   true,
+		IncludePriority:   true,
+	}
+	highPriorityKey := buildChannelAffinityCacheKeySuffix(rule, "gpt-5", "default", 300, affinityValue)
+	lowPriorityKey := buildChannelAffinityCacheKeySuffix(rule, "gpt-5", "default", 100, affinityValue)
+	cache := getChannelAffinityCache()
+	t.Cleanup(func() {
+		_, _ = cache.DeleteMany([]string{highPriorityKey, lowPriorityKey})
+	})
+
+	ctx := buildChannelAffinityTemplateContextForTest(channelAffinityMeta{
+		CacheKey:          channelAffinityCacheNamespace + ":" + highPriorityKey,
+		TTLSeconds:        60,
+		RuleName:          rule.Name,
+		AffinityValue:     affinityValue,
+		IncludeUsingGroup: true,
+		IncludeRuleName:   true,
+		IncludePriority:   true,
+		Priority:          300,
+		UsingGroup:        "default",
+		ModelName:         "gpt-5",
+	})
+
+	setting := operation_setting.GetChannelAffinitySetting()
+	originalEnabled := setting.Enabled
+	originalSwitchOnSuccess := setting.SwitchOnSuccess
+	setting.Enabled = true
+	setting.SwitchOnSuccess = true
+	t.Cleanup(func() {
+		setting.Enabled = originalEnabled
+		setting.SwitchOnSuccess = originalSwitchOnSuccess
+	})
+
+	updateChannelAffinitySelection(ctx, "default", 100)
+	meta, ok := getChannelAffinityMeta(ctx)
+	require.True(t, ok)
+	require.Equal(t, int64(100), meta.Priority)
+	require.Equal(t, channelAffinityCacheNamespace+":"+lowPriorityKey, meta.CacheKey)
+
+	RecordChannelAffinity(ctx, 202)
+	channelID, found, err := cache.Get(lowPriorityKey)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, 202, channelID)
+	_, found, err = cache.Get(highPriorityKey)
+	require.NoError(t, err)
+	require.False(t, found)
 }
 
 func TestUpdateChannelAffinitySelectedGroupKeepsAffinityPerGroup(t *testing.T) {
@@ -245,8 +321,8 @@ func TestUpdateChannelAffinitySelectedGroupKeepsAffinityPerGroup(t *testing.T) {
 		IncludeUsingGroup: true,
 		IncludeRuleName:   true,
 	}
-	lowGroupKey := buildChannelAffinityCacheKeySuffix(rule, "gpt-5", "low-cost", affinityValue)
-	highGroupKey := buildChannelAffinityCacheKeySuffix(rule, "gpt-5", "fallback", affinityValue)
+	lowGroupKey := buildChannelAffinityCacheKeySuffix(rule, "gpt-5", "low-cost", 0, affinityValue)
+	highGroupKey := buildChannelAffinityCacheKeySuffix(rule, "gpt-5", "fallback", 0, affinityValue)
 	cache := getChannelAffinityCache()
 	require.NoError(t, cache.SetWithTTL(lowGroupKey, 101, time.Minute))
 	t.Cleanup(func() {
@@ -278,7 +354,7 @@ func TestUpdateChannelAffinitySelectedGroupKeepsAffinityPerGroup(t *testing.T) {
 		"using_group":    "low-cost",
 		"selected_group": "low-cost",
 	})
-	updateChannelAffinitySelectedGroup(ctx, "fallback")
+	updateChannelAffinitySelection(ctx, "fallback", 0)
 	meta, ok := getChannelAffinityMeta(ctx)
 	require.True(t, ok)
 	require.Equal(t, "fallback", meta.UsingGroup)
@@ -308,8 +384,8 @@ func TestUpdateChannelAffinitySelectedGroupKeepsCacheKeyWhenSwitchDisabled(t *te
 		IncludeUsingGroup: true,
 		IncludeRuleName:   true,
 	}
-	lowGroupKey := buildChannelAffinityCacheKeySuffix(rule, "gpt-5", "low-cost", affinityValue)
-	highGroupKey := buildChannelAffinityCacheKeySuffix(rule, "gpt-5", "fallback", affinityValue)
+	lowGroupKey := buildChannelAffinityCacheKeySuffix(rule, "gpt-5", "low-cost", 0, affinityValue)
+	highGroupKey := buildChannelAffinityCacheKeySuffix(rule, "gpt-5", "fallback", 0, affinityValue)
 	cache := getChannelAffinityCache()
 	t.Cleanup(func() {
 		_, _ = cache.DeleteMany([]string{lowGroupKey, highGroupKey})
@@ -336,7 +412,7 @@ func TestUpdateChannelAffinitySelectedGroupKeepsCacheKeyWhenSwitchDisabled(t *te
 		setting.SwitchOnSuccess = originalSwitchOnSuccess
 	})
 
-	updateChannelAffinitySelectedGroup(ctx, "fallback")
+	updateChannelAffinitySelection(ctx, "fallback", 0)
 	meta, ok := getChannelAffinityMeta(ctx)
 	require.True(t, ok)
 	require.Equal(t, "fallback", meta.UsingGroup)
@@ -396,7 +472,7 @@ func TestChannelAffinityHitCodexTemplatePassHeadersEffective(t *testing.T) {
 	require.NotNil(t, codexRule)
 
 	affinityValue := fmt.Sprintf("pc-hit-%d", time.Now().UnixNano())
-	cacheKeySuffix := buildChannelAffinityCacheKeySuffix(*codexRule, "gpt-5", "default", affinityValue)
+	cacheKeySuffix := buildChannelAffinityCacheKeySuffix(*codexRule, "gpt-5", "default", 0, affinityValue)
 
 	cache := getChannelAffinityCache()
 	require.NoError(t, cache.SetWithTTL(cacheKeySuffix, 9527, time.Minute))
@@ -409,7 +485,7 @@ func TestChannelAffinityHitCodexTemplatePassHeadersEffective(t *testing.T) {
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(fmt.Sprintf(`{"prompt_cache_key":"%s"}`, affinityValue)))
 	ctx.Request.Header.Set("Content-Type", "application/json")
 
-	channelID, found := GetPreferredChannelByAffinity(ctx, "gpt-5", "default")
+	channelID, found := GetPreferredChannelByAffinity(ctx, "gpt-5", "default", 0)
 	require.True(t, found)
 	require.Equal(t, 9527, channelID)
 
