@@ -60,6 +60,7 @@ import type { LogOtherData } from '../../types'
 import { DetailsDialog } from '../dialogs/details-dialog'
 import { LogCostDisplay } from '../log-cost-display'
 import { ModelBadge } from '../model-badge'
+import { RequestDegradationBadge } from '../request-degradation-badge'
 import { TimingMetricsCell, StreamTpsCell } from '../timing-metrics-cell'
 import { useUsageLogsContext } from '../usage-logs-provider'
 
@@ -606,14 +607,16 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         if (!isDisplayableLogType(log.type)) return null
 
         const modelInfo = formatModelName(log)
+        const other = parseLogOther(log.other)
 
         return (
-          <div className='flex w-fit flex-col gap-0.5'>
+          <div className='flex w-fit flex-col items-start gap-0.5'>
             <ModelBadge
               modelName={modelInfo.name}
               requestModel={modelInfo.requestModel}
               actualModel={modelInfo.actualModel}
             />
+            <RequestDegradationBadge other={other} />
           </div>
         )
       },

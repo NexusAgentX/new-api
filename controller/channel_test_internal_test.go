@@ -1031,6 +1031,7 @@ func TestChannelTestNonceIsRedactedFromSuccessAndErrorBoundaries(t *testing.T) {
 
 				processChannelError(
 					result.context,
+					nil,
 					*types.NewChannelError(channel.Id, channel.Type, channel.Name, false, channel.Key, false),
 					result.newAPIError,
 				)

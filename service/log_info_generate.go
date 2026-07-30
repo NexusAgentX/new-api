@@ -118,6 +118,20 @@ func AppendRequestCustomizationInfo(ctx *gin.Context, relayInfo *relaycommon.Rel
 	)
 }
 
+// AppendRequestDegradationInfo exposes deliberate request rewrites to both
+// request owners and administrators. It intentionally stays outside
+// other.admin_info, which is removed from non-admin log responses.
+func AppendRequestDegradationInfo(relayInfo *relaycommon.RelayInfo, other map[string]interface{}) {
+	if relayInfo == nil || other == nil || relayInfo.RequestDegradation == nil {
+		return
+	}
+	degradation := relayInfo.RequestDegradation
+	if !degradation.Applied || degradation.Reason == "" || degradation.DroppedReasoningItems <= 0 {
+		return
+	}
+	other["request_degradation"] = degradation
+}
+
 func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, modelRatio, groupRatio, completionRatio float64,
 	cacheTokens int, cacheRatio float64, modelPrice float64, userGroupRatio float64) map[string]interface{} {
 	other := make(map[string]interface{})
@@ -165,6 +179,7 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	appendBillingInfo(relayInfo, other)
 	appendParamOverrideInfo(relayInfo, other)
 	appendStreamStatus(relayInfo, other)
+	AppendRequestDegradationInfo(relayInfo, other)
 	return other
 }
 
