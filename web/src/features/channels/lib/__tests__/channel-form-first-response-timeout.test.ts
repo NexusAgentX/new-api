@@ -22,6 +22,7 @@ import { describe, test } from 'node:test'
 import type { Channel } from '../../types'
 import {
   CHANNEL_FORM_DEFAULT_VALUES,
+  channelFormSchema,
   transformChannelToFormDefaults,
   transformFormDataToCreatePayload,
 } from '../channel-form'
@@ -106,5 +107,105 @@ describe('channel first-response timeout form', () => {
       ),
       false
     )
+  })
+
+  test('restores and serializes the channel test profile', () => {
+    const channel = createChannel(
+      '{"test_endpoint_type":"openai-response","test_stream":true,"test_sample_tokens":2048,"test_prepend_nonce":true,"test_disable_threshold_seconds":0}'
+    )
+    const values = transformChannelToFormDefaults(channel)
+    assert.equal(values.test_endpoint_type, 'openai-response')
+    assert.equal(values.test_stream, true)
+    assert.equal(values.test_sample_tokens, 2048)
+    assert.equal(values.test_prepend_nonce, true)
+    assert.equal(values.test_disable_threshold_seconds, 0)
+
+    const result = transformFormDataToCreatePayload({
+      ...CHANNEL_FORM_DEFAULT_VALUES,
+      name: 'channel',
+      key: 'key',
+      models: 'gpt-test',
+      group: ['default'],
+      test_endpoint_type: 'openai-response',
+      test_stream: true,
+      test_sample_tokens: 2048,
+      test_prepend_nonce: true,
+      test_disable_threshold_seconds: 0,
+    })
+    const setting = JSON.parse(String(result.channel.setting))
+    assert.equal(setting.test_endpoint_type, 'openai-response')
+    assert.equal(setting.test_stream, true)
+    assert.equal(setting.test_sample_tokens, 2048)
+    assert.equal(setting.test_prepend_nonce, true)
+    assert.equal(setting.test_disable_threshold_seconds, 0)
+  })
+
+  test('preserves an explicit disabled stream setting', () => {
+    const result = transformFormDataToCreatePayload({
+      ...CHANNEL_FORM_DEFAULT_VALUES,
+      name: 'channel',
+      key: 'key',
+      models: 'gpt-test',
+      group: ['default'],
+      test_stream: false,
+    })
+    const setting = JSON.parse(String(result.channel.setting))
+    assert.equal(Object.hasOwn(setting, 'test_stream'), true)
+    assert.equal(setting.test_stream, false)
+  })
+
+  test('preserves legacy Codex streaming behavior in the form', () => {
+    const channel = createChannel('{}')
+    channel.type = 57
+
+    const values = transformChannelToFormDefaults(channel)
+
+    assert.equal(values.test_endpoint_type, 'auto')
+    assert.equal(values.test_stream, true)
+  })
+
+  test('returns translatable validation keys for invalid channel test settings', () => {
+    const baseValues = {
+      ...CHANNEL_FORM_DEFAULT_VALUES,
+      name: 'channel',
+      key: 'key',
+      models: 'gpt-test',
+      group: ['default'],
+    }
+    const tests = [
+      {
+        field: 'test_endpoint_type',
+        value: 'unsupported',
+        message: 'Select a valid test endpoint type',
+      },
+      {
+        field: 'test_sample_tokens',
+        value: 1.5,
+        message: 'Test sample size must be a whole number from 0 to 8192',
+      },
+      {
+        field: 'test_sample_tokens',
+        value: 8193,
+        message: 'Test sample size must be a whole number from 0 to 8192',
+      },
+      {
+        field: 'test_disable_threshold_seconds',
+        value: -0.1,
+        message: 'Test disable threshold must be zero or greater',
+      },
+    ] as const
+
+    for (const fixture of tests) {
+      const parsed = channelFormSchema.safeParse({
+        ...baseValues,
+        [fixture.field]: fixture.value,
+      })
+      assert.equal(parsed.success, false)
+      if (parsed.success) continue
+      const issue = parsed.error.issues.find(
+        (candidate) => candidate.path[0] === fixture.field
+      )
+      assert.equal(issue?.message, fixture.message)
+    }
   })
 })

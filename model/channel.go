@@ -832,6 +832,66 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 	return true
 }
 
+// EnableChannelIfAutoDisabled prevents a stale recovery probe from overriding
+// a manual status change made while the probe was running.
+func EnableChannelIfAutoDisabled(channelId int, usingKey string) bool {
+	channelStatusLock.Lock()
+	defer channelStatusLock.Unlock()
+
+	var updatedChannel Channel
+	changed := false
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockForUpdate(tx).Where("id = ?", channelId).First(&updatedChannel).Error; err != nil {
+			return err
+		}
+		if updatedChannel.Status != common.ChannelStatusAutoDisabled {
+			return nil
+		}
+
+		if updatedChannel.ChannelInfo.IsMultiKey {
+			handlerMultiKeyUpdate(&updatedChannel, usingKey, common.ChannelStatusEnabled, "")
+			if updatedChannel.Status != common.ChannelStatusEnabled {
+				return nil
+			}
+		} else {
+			info := updatedChannel.GetOtherInfo()
+			info["status_reason"] = ""
+			info["status_time"] = common.GetTimestamp()
+			updatedChannel.SetOtherInfo(info)
+			updatedChannel.Status = common.ChannelStatusEnabled
+		}
+
+		result := tx.Model(&Channel{}).
+			Where("id = ? AND status = ?", channelId, common.ChannelStatusAutoDisabled).
+			Updates(map[string]any{
+				"status":       updatedChannel.Status,
+				"other_info":   updatedChannel.OtherInfo,
+				"channel_info": updatedChannel.ChannelInfo,
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		changed = result.RowsAffected == 1
+		return nil
+	})
+	if err != nil {
+		common.SysLog(fmt.Sprintf("failed to conditionally enable channel: channel_id=%d, error=%v", channelId, err))
+		return false
+	}
+	if !changed {
+		return false
+	}
+
+	if common.MemoryCacheEnabled {
+		CacheUpdateChannel(&updatedChannel)
+		CacheUpdateChannelStatus(channelId, common.ChannelStatusEnabled)
+	}
+	if err := UpdateAbilityStatus(channelId, true); err != nil {
+		common.SysLog(fmt.Sprintf("failed to update ability status: channel_id=%d, error=%v", channelId, err))
+	}
+	return true
+}
+
 func EnableChannelByTag(tag string) error {
 	err := DB.Model(&Channel{}).Where("tag = ?", tag).Update("status", common.ChannelStatusEnabled).Error
 	if err != nil {
@@ -1008,6 +1068,22 @@ func (channel *Channel) ValidateSettings() error {
 	if channelParams.FirstResponseTimeoutSeconds != nil && *channelParams.FirstResponseTimeoutSeconds != 0 {
 		if err := operation_setting.ValidateFirstResponseTimeoutSeconds(*channelParams.FirstResponseTimeoutSeconds); err != nil {
 			return err
+		}
+	}
+	channelTestEndpointType := strings.TrimSpace(channelParams.TestEndpointType)
+	if channelTestEndpointType != "" && !dto.IsSupportedChannelTestEndpointType(channelTestEndpointType) {
+		return fmt.Errorf("invalid channel test endpoint type: %s", channelTestEndpointType)
+	}
+	if channelParams.TestStream != nil && *channelParams.TestStream && dto.IsChannelTestEndpointStreamIncompatible(channelTestEndpointType) {
+		return fmt.Errorf("channel test endpoint type does not support streaming: %s", channelTestEndpointType)
+	}
+	if channelParams.TestSampleTokens != nil && (*channelParams.TestSampleTokens < 0 || *channelParams.TestSampleTokens > dto.MaxChannelTestSampleTokens) {
+		return fmt.Errorf("channel test sample tokens must be between 0 and %d", dto.MaxChannelTestSampleTokens)
+	}
+	if channelParams.TestDisableThresholdSeconds != nil {
+		threshold := *channelParams.TestDisableThresholdSeconds
+		if math.IsNaN(threshold) || math.IsInf(threshold, 0) || threshold < 0 {
+			return errors.New("channel test disable threshold must be a finite non-negative number")
 		}
 	}
 	channelOtherSettings := &dto.ChannelOtherSettings{}

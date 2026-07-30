@@ -1,6 +1,7 @@
 package common
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -152,6 +153,8 @@ type RelayInfo struct {
 	SubscriptionAmountUsedAfterPreConsume int64
 	IsClaudeBetaQuery                     bool // /v1/messages?beta=true
 	IsChannelTest                         bool // channel test request
+	MonitorFirstResponseInChannelTest     bool // channel test uses first-response timeout without production metrics
+	RequireValidFirstResponseEvent        bool // first-response timeout ignores malformed and error SSE payloads
 	RetryIndex                            int
 	LastError                             *types.NewAPIError
 	RuntimeHeadersOverride                map[string]interface{}
@@ -192,8 +195,11 @@ type RelayInfo struct {
 	// convOptions caches the converter settings snapshot (see ConvOptions).
 	convOptions *convmeta.Options
 
-	firstResponseAttemptMu sync.Mutex
-	firstResponseAttempt   *FirstResponseAttempt
+	firstResponseAttemptMu       sync.Mutex
+	firstResponseAttempt         *FirstResponseAttempt
+	firstResponseTimeoutObserved bool
+	firstResponseTimeoutSeconds  int
+	firstResponseProtocolFailure bool
 
 	ThinkingContentInfo
 	TokenCountMeta
@@ -852,6 +858,80 @@ func (info *RelayInfo) SetFirstResponseTime() {
 	}
 }
 
+func IsIgnorableFirstResponseEvent(data []byte) bool {
+	trimmed := bytes.TrimSpace(data)
+	return len(trimmed) == 0 ||
+		bytes.Equal(trimmed, []byte("[DONE]")) ||
+		strings.EqualFold(string(trimmed), "ping")
+}
+
+func IsValidFirstResponseJSON(data []byte) bool {
+	var payload map[string]any
+	if err := common.Unmarshal(data, &payload); err != nil || len(payload) == 0 {
+		return false
+	}
+	if _, exists := payload["error"]; exists {
+		return false
+	}
+	for _, field := range []string{"type", "status"} {
+		value, exists := payload[field]
+		if !exists {
+			continue
+		}
+		if statusCode, ok := value.(float64); ok && statusCode >= 400 {
+			return false
+		}
+		text, ok := value.(string)
+		if !ok {
+			continue
+		}
+		normalized := strings.ToLower(strings.TrimSpace(text))
+		if strings.Contains(normalized, "error") ||
+			strings.Contains(normalized, "failed") ||
+			strings.Contains(normalized, "failure") ||
+			strings.Contains(normalized, "cancelled") ||
+			strings.Contains(normalized, "canceled") ||
+			strings.Contains(normalized, "incomplete") {
+			return false
+		}
+	}
+	return true
+}
+
+func (info *RelayInfo) RecordFirstResponseProtocolFailure() {
+	if info == nil || !info.RequireValidFirstResponseEvent {
+		return
+	}
+	info.firstResponseAttemptMu.Lock()
+	info.firstResponseProtocolFailure = true
+	info.firstResponseAttemptMu.Unlock()
+}
+
+func (info *RelayInfo) FirstResponseProtocolError() error {
+	if info == nil {
+		return nil
+	}
+	info.firstResponseAttemptMu.Lock()
+	observed := info.firstResponseProtocolFailure
+	info.firstResponseAttemptMu.Unlock()
+	if !observed {
+		return nil
+	}
+	return errors.New("stream response contains an invalid or error upstream event")
+}
+
+func (info *RelayInfo) SetFirstResponseTimeFromJSON(data []byte) bool {
+	if info == nil || IsIgnorableFirstResponseEvent(data) {
+		return false
+	}
+	if info.RequireValidFirstResponseEvent && !IsValidFirstResponseJSON(data) {
+		info.RecordFirstResponseProtocolFailure()
+		return false
+	}
+	info.SetFirstResponseTime()
+	return true
+}
+
 func (info *RelayInfo) BeginFirstResponseAttempt(parent context.Context, timeoutSeconds int) (context.Context, bool) {
 	if info == nil || parent == nil || timeoutSeconds <= 0 {
 		return parent, false
@@ -942,18 +1022,41 @@ func (info *RelayInfo) EndFirstResponseAttempt() FirstResponseAttemptResult {
 	info.firstResponseAttemptMu.Lock()
 	attempt := info.firstResponseAttempt
 	info.firstResponseAttempt = nil
+	observedTimeout := info.IsChannelTest && info.firstResponseTimeoutObserved
+	observedTimeoutSeconds := info.firstResponseTimeoutSeconds
 	info.firstResponseAttemptMu.Unlock()
 	if attempt == nil {
-		return FirstResponseAttemptResult{}
+		return FirstResponseAttemptResult{
+			Monitored:      observedTimeout,
+			TimedOut:       observedTimeout,
+			TimeoutSeconds: observedTimeoutSeconds,
+		}
 	}
 	if attempt.finished.CompareAndSwap(false, true) {
 		attempt.timer.Stop()
 	}
 	attempt.cancel()
+
+	timedOut := attempt.timedOut.Load()
+	timeoutSeconds := attempt.timeoutSeconds
+	if info.IsChannelTest && timedOut {
+		info.firstResponseAttemptMu.Lock()
+		if !info.firstResponseTimeoutObserved {
+			info.firstResponseTimeoutObserved = true
+			info.firstResponseTimeoutSeconds = attempt.timeoutSeconds
+		}
+		observedTimeout = info.firstResponseTimeoutObserved
+		observedTimeoutSeconds = info.firstResponseTimeoutSeconds
+		info.firstResponseAttemptMu.Unlock()
+	}
+	if observedTimeout {
+		timedOut = true
+		timeoutSeconds = observedTimeoutSeconds
+	}
 	return FirstResponseAttemptResult{
 		Monitored:      true,
-		TimedOut:       attempt.timedOut.Load(),
-		TimeoutSeconds: attempt.timeoutSeconds,
+		TimedOut:       timedOut,
+		TimeoutSeconds: timeoutSeconds,
 	}
 }
 

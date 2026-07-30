@@ -7,10 +7,12 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/bytedance/gopkg/util/gopool"
@@ -99,6 +101,9 @@ func logHelper(ctx context.Context, level string, msg string) {
 	if ctx != nil {
 		if requestID := ctx.Value(common.RequestIdKey); requestID != nil {
 			id = requestID
+		}
+		if nonce, ok := ctx.Value(string(constant.ContextKeyChannelTestNonce)).(string); ok && strings.TrimSpace(nonce) != "" {
+			msg = common.RedactExactValue(msg, nonce)
 		}
 	}
 	now := time.Now()

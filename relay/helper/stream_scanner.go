@@ -47,6 +47,10 @@ func NewStreamScanner(reader io.Reader) *bufio.Scanner {
 	return scanner
 }
 
+func IsValidFirstResponseEvent(data string) bool {
+	return relaycommon.IsValidFirstResponseJSON([]byte(data))
+}
+
 func copyCodexSSEHeaders(c *gin.Context, resp *http.Response) {
 	if c == nil || c.Writer == nil || resp == nil {
 		return
@@ -267,7 +271,16 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 				continue
 			}
 			if !strings.HasPrefix(data, "[DONE]") {
-				info.SetFirstResponseTime()
+				if info.RequireValidFirstResponseEvent {
+					if relaycommon.IsIgnorableFirstResponseEvent([]byte(data)) {
+						continue
+					}
+					if !info.SetFirstResponseTimeFromJSON([]byte(data)) {
+						info.StreamStatus.RecordError("invalid or error SSE event")
+					}
+				} else {
+					info.SetFirstResponseTime()
+				}
 				info.ReceivedResponseCount++
 
 				select {

@@ -1,7 +1,9 @@
 package common
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/convmeta"
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -77,4 +79,57 @@ func TestRelayInfoMetaTypedNilReceiver(t *testing.T) {
 	assert.NotNil(t, firstOptions.Gemini.SupportsImagine)
 	assert.NotNil(t, firstOptions.Gemini.SafetySetting)
 	assert.NotNil(t, firstOptions.PreserveThinkingSuffix)
+}
+
+func TestChannelTestFirstResponseTimeoutRemainsStickyAcrossAttempts(t *testing.T) {
+	info := &RelayInfo{IsChannelTest: true}
+
+	firstContext, monitored := info.BeginFirstResponseAttempt(context.Background(), 1)
+	require.True(t, monitored)
+	select {
+	case <-firstContext.Done():
+	case <-time.After(2 * time.Second):
+		require.FailNow(t, "first response attempt did not time out")
+	}
+
+	_, monitored = info.BeginFirstResponseAttempt(context.Background(), 30)
+	require.True(t, monitored)
+	info.MarkFirstResponseReceived()
+
+	result := info.EndFirstResponseAttempt()
+	require.True(t, result.Monitored)
+	require.True(t, result.TimedOut)
+	require.Equal(t, 1, result.TimeoutSeconds)
+}
+
+func TestChannelTestProtocolFailureRemainsStickyAfterValidEvent(t *testing.T) {
+	info := &RelayInfo{RequireValidFirstResponseEvent: true}
+	invalidEvents := [][]byte{
+		[]byte("not-json"),
+		[]byte(`{}`),
+		[]byte(`{"error":null}`),
+		[]byte(`{"type":"response.failed"}`),
+		[]byte(`{"status":503}`),
+	}
+	for _, event := range invalidEvents {
+		require.False(t, info.SetFirstResponseTimeFromJSON(event))
+	}
+
+	require.True(t, info.SetFirstResponseTimeFromJSON([]byte(`{"type":"response.created"}`)))
+	require.ErrorContains(t, info.FirstResponseProtocolError(), "invalid or error upstream event")
+}
+
+func TestChannelTestProtocolAllowsControlEvents(t *testing.T) {
+	info := &RelayInfo{RequireValidFirstResponseEvent: true}
+	for _, event := range [][]byte{
+		nil,
+		[]byte("  \n"),
+		[]byte("[DONE]"),
+		[]byte("PING"),
+	} {
+		require.False(t, info.SetFirstResponseTimeFromJSON(event))
+	}
+
+	require.NoError(t, info.FirstResponseProtocolError())
+	require.True(t, info.SetFirstResponseTimeFromJSON([]byte(`{"type":"ping"}`)))
 }

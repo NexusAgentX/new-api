@@ -1,6 +1,7 @@
 package types
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -177,6 +178,60 @@ func (e *NewAPIError) MaskSensitiveErrorWithStatusCode() string {
 
 func (e *NewAPIError) SetMessage(message string) {
 	e.Err = errors.New(message)
+}
+
+const redactedSensitiveValue = "[REDACTED]"
+
+func redactExactValue(text, value string) string {
+	if value == "" {
+		return text
+	}
+	return strings.ReplaceAll(text, value, redactedSensitiveValue)
+}
+
+func redactExactOpenAIError(openAIError OpenAIError, value string) OpenAIError {
+	openAIError.Message = redactExactValue(openAIError.Message, value)
+	openAIError.Type = redactExactValue(openAIError.Type, value)
+	openAIError.Param = redactExactValue(openAIError.Param, value)
+	if code, ok := openAIError.Code.(string); ok {
+		openAIError.Code = redactExactValue(code, value)
+	}
+	openAIError.Metadata = bytes.ReplaceAll(openAIError.Metadata, []byte(value), []byte(redactedSensitiveValue))
+	return openAIError
+}
+
+func redactExactClaudeError(claudeError ClaudeError, value string) ClaudeError {
+	claudeError.Type = redactExactValue(claudeError.Type, value)
+	claudeError.Message = redactExactValue(claudeError.Message, value)
+	return claudeError
+}
+
+// RedactExactValue removes a request-scoped sensitive value from every
+// user-visible or persistable representation carried by the error.
+func (e *NewAPIError) RedactExactValue(value string) {
+	if e == nil || value == "" {
+		return
+	}
+	if e.Err != nil {
+		e.Err = errors.New(redactExactValue(e.Err.Error(), value))
+	}
+	switch relayError := e.RelayError.(type) {
+	case OpenAIError:
+		e.RelayError = redactExactOpenAIError(relayError, value)
+	case *OpenAIError:
+		if relayError != nil {
+			redacted := redactExactOpenAIError(*relayError, value)
+			e.RelayError = &redacted
+		}
+	case ClaudeError:
+		e.RelayError = redactExactClaudeError(relayError, value)
+	case *ClaudeError:
+		if relayError != nil {
+			redacted := redactExactClaudeError(*relayError, value)
+			e.RelayError = &redacted
+		}
+	}
+	e.Metadata = bytes.ReplaceAll(e.Metadata, []byte(value), []byte(redactedSensitiveValue))
 }
 
 func (e *NewAPIError) ToOpenAIError() OpenAIError {

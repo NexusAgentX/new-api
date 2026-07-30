@@ -217,6 +217,20 @@ export const STATIC_I18N_KEYS = [
   // Channel Affinity section
   'Channel Affinity',
 
+  // Channel test settings (dynamic option and validation keys)
+  'Auto detect (default)',
+  'OpenAI (/v1/chat/completions)',
+  'OpenAI Responses (/v1/responses)',
+  'OpenAI Response Compaction (/v1/responses/compact)',
+  'Anthropic (/v1/messages)',
+  'Gemini (/v1beta/models/{model}:generateContent)',
+  'Jina Rerank (/v1/rerank)',
+  'Image Generation (/v1/images/generations)',
+  'Embeddings (/v1/embeddings)',
+  'Select a valid test endpoint type',
+  'Test sample size must be a whole number from 0 to 8192',
+  'Test disable threshold must be zero or greater',
+
   // Models constants
   'Exact Match',
   'Prefix Match',

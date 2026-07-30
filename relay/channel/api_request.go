@@ -478,12 +478,18 @@ func DoRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 }
 
 func shouldMonitorFirstResponse(info *common.RelayInfo) bool {
-	if info == nil || !info.IsStream || info.IsChannelTest {
+	if info == nil || !info.IsStream {
 		return false
 	}
-	setting := operation_setting.GetFirstResponseTimeoutSetting()
-	if !setting.RetryEnabled && !setting.DisableEnabled {
-		return false
+	if info.IsChannelTest {
+		if !info.MonitorFirstResponseInChannelTest {
+			return false
+		}
+	} else {
+		setting := operation_setting.GetFirstResponseTimeoutSetting()
+		if !setting.RetryEnabled && !setting.DisableEnabled {
+			return false
+		}
 	}
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI, types.RelayFormatOpenAIResponses, types.RelayFormatClaude, types.RelayFormatGemini:
@@ -507,6 +513,17 @@ func effectiveFirstResponseTimeoutSeconds(info *common.RelayInfo) (int, bool) {
 	return timeoutSeconds, true
 }
 
+func BeginFirstResponseMonitor(parent context.Context, info *common.RelayInfo) (context.Context, bool) {
+	if !shouldMonitorFirstResponse(info) {
+		return parent, false
+	}
+	timeoutSeconds, ok := effectiveFirstResponseTimeoutSeconds(info)
+	if !ok {
+		return parent, false
+	}
+	return info.BeginFirstResponseAttempt(parent, timeoutSeconds)
+}
+
 func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
 	client, err := service.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
 	if err != nil {
@@ -523,15 +540,9 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		))
 	}
 
-	monitoredFirstResponse := false
-	if shouldMonitorFirstResponse(info) {
-		if timeoutSeconds, ok := effectiveFirstResponseTimeoutSeconds(info); ok {
-			requestContext, monitored := info.BeginFirstResponseAttempt(c.Request.Context(), timeoutSeconds)
-			if monitored {
-				req = req.WithContext(requestContext)
-				monitoredFirstResponse = true
-			}
-		}
+	requestContext, monitoredFirstResponse := BeginFirstResponseMonitor(c.Request.Context(), info)
+	if monitoredFirstResponse {
+		req = req.WithContext(requestContext)
 	}
 
 	var stopPinger context.CancelFunc
