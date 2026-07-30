@@ -112,7 +112,14 @@ export interface ToolSurchargeItem {
   price: number
 }
 
+export interface RequestDegradationInfo {
+  applied: boolean
+  reason: string
+  dropped_reasoning_items: number
+}
+
 export interface LogOtherData {
+  request_degradation?: RequestDegradationInfo
   admin_info?: {
     is_multi_key?: boolean
     multi_key_index?: number

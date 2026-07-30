@@ -25,7 +25,7 @@ import {
 } from '@/features/pricing/lib/billing-expr'
 
 import type { UsageLog } from '../data/schema'
-import type { LogOtherData } from '../types'
+import type { LogOtherData, RequestDegradationInfo } from '../types'
 
 export { normalizeTierLabel }
 
@@ -165,6 +165,21 @@ export function parseLogOther(other: string): LogOtherData | null {
     console.error('Failed to parse log other field:', error)
     return null
   }
+}
+
+export function getRequestDegradation(
+  other: LogOtherData | null | undefined
+): RequestDegradationInfo | null {
+  const degradation = other?.request_degradation
+  if (
+    degradation?.applied !== true ||
+    degradation.reason !== 'non_replayable_reasoning' ||
+    !Number.isInteger(degradation.dropped_reasoning_items) ||
+    degradation.dropped_reasoning_items <= 0
+  ) {
+    return null
+  }
+  return degradation
 }
 
 /**

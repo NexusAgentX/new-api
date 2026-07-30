@@ -57,6 +57,7 @@ import {
   parseAuditLine,
   decodeBillingExprB64,
   getTieredBillingSummary,
+  getRequestDegradation,
   hasAnyCacheTokens,
   isViolationFeeLog,
   getFirstResponseTimeColor,
@@ -487,6 +488,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
   const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false })
   const details = props.log.content ?? ''
   const other = parseLogOther(props.log.other)
+  const requestDegradation = getRequestDegradation(other)
   const requestModelMapping = other?.request_customization?.model_mapping
   const typeConfig = getLogTypeConfig(props.log.type)
 
@@ -784,6 +786,35 @@ export function DetailsDialog(props: DetailsDialogProps) {
                 </div>
               </div>
             </div>
+          </DetailSection>
+        )}
+
+        {requestDegradation && (
+          <DetailSection
+            icon={<AlertTriangle className='size-3.5' aria-hidden='true' />}
+            iconTone='warning'
+            label={t('Request degradation')}
+          >
+            <DetailRow
+              label={t('Status')}
+              value={
+                <StatusBadge
+                  label={t('Degraded')}
+                  variant='warning'
+                  size='sm'
+                  copyable={false}
+                />
+              }
+            />
+            <DetailRow
+              label={t('Reason')}
+              value={t('Non-replayable reasoning history')}
+            />
+            <DetailRow
+              label={t('Removed items')}
+              value={String(requestDegradation.dropped_reasoning_items)}
+              mono
+            />
           </DetailSection>
         )}
 
