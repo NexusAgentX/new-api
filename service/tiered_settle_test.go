@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
@@ -129,33 +130,6 @@ func TestTryTieredSettleHonorsFinalGroupAllowZeroQuota(t *testing.T) {
 			assert.Equal(t, tt.want, quota)
 			assert.Equal(t, tt.allowZeroQuota, relayInfo.TieredBillingSnapshot.AllowZeroQuota)
 		})
-	}
-}
-
-func TestTryTieredSettleFallsBackToFrozenPreConsumeOnExprError(t *testing.T) {
-	relayInfo := &relaycommon.RelayInfo{
-		FinalPreConsumedQuota: 321,
-		TieredBillingSnapshot: &billingexpr.BillingSnapshot{
-			BillingMode:              "tiered_expr",
-			ExprString:               `invalid +-+ expr`,
-			ExprHash:                 billingexpr.ExprHashString(`invalid +-+ expr`),
-			GroupRatio:               1.0,
-			EstimatedQuotaAfterGroup: 123,
-		},
-		PriceData: types.PriceData{
-			GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1},
-		},
-	}
-
-	ok, quota, result := TryTieredSettle(relayInfo, billingexpr.TokenParams{P: 100})
-	if !ok {
-		t.Fatal("expected tiered settle to apply")
-	}
-	if quota != 321 {
-		t.Fatalf("quota = %d, want 321", quota)
-	}
-	if result != nil {
-		t.Fatalf("result = %#v, want nil", result)
 	}
 }
 
@@ -623,6 +597,50 @@ func TestTryTieredSettle_RatioMode_EmptyBillingMode(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Fallback tests
 // ---------------------------------------------------------------------------
+
+func TestTryTieredSettleErrorFallbackUsesFinalGroupEstimate(t *testing.T) {
+	const expr = `p == 7 ? tier("base", param("bad")) : tier("base", p)`
+	require.NoError(t, billing_setting.SmokeTestExpr(expr))
+	requestInput := billingexpr.RequestInput{Body: []byte(`{"bad":{}}`)}
+	_, _, err := billingexpr.RunExprWithRequest(expr, billingexpr.TokenParams{P: 1000}, requestInput)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name            string
+		finalGroupRatio float64
+		wantQuota       int
+	}{
+		{name: "cheaper final group", finalGroupRatio: 0.5, wantQuota: 50},
+		{name: "free final group", finalGroupRatio: 0, wantQuota: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			relayInfo := &relaycommon.RelayInfo{
+				FinalPreConsumedQuota: 100,
+				TieredBillingSnapshot: &billingexpr.BillingSnapshot{
+					BillingMode:               "tiered_expr",
+					ExprString:                expr,
+					ExprHash:                  billingexpr.ExprHashString(expr),
+					GroupRatio:                1,
+					EstimatedQuotaBeforeGroup: 100,
+					EstimatedQuotaAfterGroup:  100,
+				},
+				BillingRequestInput: &requestInput,
+				PriceData: types.PriceData{
+					GroupRatioInfo: types.GroupRatioInfo{GroupRatio: tt.finalGroupRatio},
+				},
+			}
+
+			ok, quota, result := TryTieredSettle(relayInfo, billingexpr.TokenParams{P: 7})
+
+			require.True(t, ok)
+			require.Nil(t, result)
+			assert.Equal(t, tt.wantQuota, quota)
+			assert.Equal(t, tt.wantQuota, relayInfo.TieredBillingSnapshot.EstimatedQuotaAfterGroup)
+		})
+	}
+}
 
 func TestTryTieredSettle_ErrorFallbackToEstimatedQuotaAfterGroup(t *testing.T) {
 	info := &relaycommon.RelayInfo{

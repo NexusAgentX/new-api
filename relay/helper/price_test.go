@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -85,33 +86,42 @@ func TestModelPriceHelperTieredPreConsumeMaxTokensFallback(t *testing.T) {
 	const promptTokens = 1000
 
 	cases := []struct {
-		name      string
-		group     string
-		maxTokens int
-		expected  int
+		name                    string
+		group                   string
+		maxTokens               int
+		wantPreConsumedQuota    int
+		wantEstimatedCompletion int
+		wantQuotaBeforeGroup    float64
 	}{
 		{
-			// max_tokens omitted in a paid group -> fall back to 8192 completion tokens.
+			// max_tokens omitted -> fall back to 8192 completion tokens.
 			// p*3 + c*15 = 1000*3 + 8192*15 = 125880 -> /1e6 * 500000 = 62940
-			name:      "non-free group falls back to 8192 completion tokens",
-			group:     "default",
-			maxTokens: 0,
-			expected:  62940,
+			name:                    "paid group falls back to 8192 completion tokens",
+			group:                   "default",
+			maxTokens:               0,
+			wantPreConsumedQuota:    62940,
+			wantEstimatedCompletion: 8192,
+			wantQuotaBeforeGroup:    62940,
 		},
 		{
 			// explicit max_tokens is used verbatim, no fallback.
 			// 1000*3 + 100*15 = 4500 -> /1e6 * 500000 = 2250
-			name:      "explicit max_tokens is used verbatim",
-			group:     "default",
-			maxTokens: 100,
-			expected:  2250,
+			name:                    "explicit max_tokens is used verbatim",
+			group:                   "default",
+			maxTokens:               100,
+			wantPreConsumedQuota:    2250,
+			wantEstimatedCompletion: 100,
+			wantQuotaBeforeGroup:    2250,
 		},
 		{
-			// free group (ratio 0) stays zero; fallback is gated on non-zero group ratio.
-			name:      "free group stays zero without fallback",
-			group:     "free",
-			maxTokens: 0,
-			expected:  0,
+			// A free group charges zero, but its group-independent estimate must remain
+			// ready in case an auto-group retry switches to a paid group.
+			name:                    "free group preserves the paid retry estimate",
+			group:                   "free",
+			maxTokens:               0,
+			wantPreConsumedQuota:    0,
+			wantEstimatedCompletion: 8192,
+			wantQuotaBeforeGroup:    62940,
 		},
 	}
 
@@ -137,7 +147,10 @@ func TestModelPriceHelperTieredPreConsumeMaxTokensFallback(t *testing.T) {
 
 			priceData, err := ModelPriceHelper(ctx, info, promptTokens, &types.TokenCountMeta{MaxTokens: tc.maxTokens})
 			require.NoError(t, err)
-			require.Equal(t, tc.expected, priceData.QuotaToPreConsume)
+			require.Equal(t, tc.wantPreConsumedQuota, priceData.QuotaToPreConsume)
+			require.NotNil(t, info.TieredBillingSnapshot)
+			assert.Equal(t, tc.wantEstimatedCompletion, info.TieredBillingSnapshot.EstimatedCompletionTokens)
+			assert.InDelta(t, tc.wantQuotaBeforeGroup, info.TieredBillingSnapshot.EstimatedQuotaBeforeGroup, 1e-9)
 		})
 	}
 }
@@ -155,10 +168,10 @@ func TestModelPriceHelperTieredHonorsGroupZeroQuotaSetting(t *testing.T) {
 	})
 
 	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
-		"billing_setting.billing_mode":                     `{"tiny-model":"tiered_expr"}`,
-		"billing_setting.billing_expr":                     `{"tiny-model":"tier(\"base\", p)"}`,
-		"group_ratio_setting.group_ratio":                  `{"minimum":0.0001,"free-rounding":0.0001}`,
-		"group_ratio_setting.group_allow_zero_quota":       `{"minimum":false,"free-rounding":true}`,
+		"billing_setting.billing_mode":               `{"tiny-model":"tiered_expr"}`,
+		"billing_setting.billing_expr":               `{"tiny-model":"tier(\"base\", p)"}`,
+		"group_ratio_setting.group_ratio":            `{"minimum":0.0001,"free-rounding":0.0001}`,
+		"group_ratio_setting.group_allow_zero_quota": `{"minimum":false,"free-rounding":true}`,
 	}))
 
 	tests := []struct {
