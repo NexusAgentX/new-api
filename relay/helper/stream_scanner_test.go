@@ -55,6 +55,136 @@ func buildSSEBody(n int) string {
 	return b.String()
 }
 
+type streamReadError struct {
+	data []byte
+}
+
+func (r *streamReadError) Read(p []byte) (int, error) {
+	if len(r.data) == 0 {
+		return 0, fmt.Errorf("upstream read failed")
+	}
+	n := copy(p, r.data)
+	r.data = r.data[n:]
+	return n, nil
+}
+
+func TestIsValidFirstResponseEvent(t *testing.T) {
+	tests := []struct {
+		name  string
+		data  string
+		valid bool
+	}{
+		{name: "valid response event", data: `{"type":"response.created"}`, valid: true},
+		{name: "valid chat event", data: `{"choices":[{"delta":{"content":"hi"}}]}`, valid: true},
+		{name: "done sentinel", data: `[DONE]`},
+		{name: "malformed JSON", data: `{not-json`},
+		{name: "error payload", data: `{"error":{"message":"rate limited"}}`},
+		{name: "failed event", data: `{"type":"failed"}`},
+		{name: "failed response", data: `{"type":"response.failed"}`},
+		{name: "failed status", data: `{"status":"failed"}`},
+		{name: "error status", data: `{"status":"error"}`},
+		{name: "numeric error status", data: `{"status":503}`},
+		{name: "cancelled response", data: `{"type":"response.cancelled"}`},
+		{name: "empty object", data: `{}`},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.valid, IsValidFirstResponseEvent(test.data))
+		})
+	}
+}
+
+func TestStreamScannerHandlerPreservesOrdinaryProductionEvents(t *testing.T) {
+	tests := []string{
+		`ping`,
+		`malformed`,
+		`{"error":{"message":"retry later"}}`,
+	}
+	for _, event := range tests {
+		t.Run(event, func(t *testing.T) {
+			body := "data: " + event + "\ndata: [DONE]\n"
+			c, resp, info := setupStreamTest(t, strings.NewReader(body))
+			_, monitored := info.BeginFirstResponseAttempt(context.Background(), 30)
+			require.True(t, monitored)
+			t.Cleanup(func() { info.EndFirstResponseAttempt() })
+
+			var received []string
+			StreamScannerHandler(c, resp, info, func(data string, _ *StreamResult) {
+				received = append(received, data)
+			})
+
+			assert.Equal(t, []string{event}, received)
+			assert.True(t, info.CanSendStreamPing())
+			assert.Equal(t, 1, info.ReceivedResponseCount)
+			require.NotNil(t, info.StreamStatus)
+			assert.False(t, info.StreamStatus.HasErrors())
+		})
+	}
+}
+
+func TestStreamScannerHandlerRecordsInvalidChannelTestEvents(t *testing.T) {
+	reader, writer := io.Pipe()
+	c, resp, info := setupStreamTest(t, reader)
+	info.RequireValidFirstResponseEvent = true
+	_, monitored := info.BeginFirstResponseAttempt(context.Background(), 30)
+	require.True(t, monitored)
+	t.Cleanup(func() { info.EndFirstResponseAttempt() })
+
+	eventHandled := make(chan string, 3)
+	handlerDone := make(chan struct{})
+	go func() {
+		StreamScannerHandler(c, resp, info, func(data string, _ *StreamResult) {
+			eventHandled <- data
+		})
+		close(handlerDone)
+	}()
+
+	_, err := writer.Write([]byte("data: ping\ndata: malformed\n"))
+	require.NoError(t, err)
+	select {
+	case event := <-eventHandled:
+		assert.Equal(t, "malformed", event)
+	case <-time.After(time.Second):
+		require.FailNow(t, "malformed event was not handled")
+	}
+	assert.False(t, info.CanSendStreamPing())
+
+	_, err = writer.Write([]byte("data: {\"type\":\"response.created\"}\n"))
+	require.NoError(t, err)
+	select {
+	case event := <-eventHandled:
+		assert.Equal(t, `{"type":"response.created"}`, event)
+	case <-time.After(time.Second):
+		require.FailNow(t, "valid event was not handled")
+	}
+	assert.True(t, info.CanSendStreamPing())
+
+	_, err = writer.Write([]byte("data: {\"type\":\"response.failed\"}\n"))
+	require.NoError(t, err)
+	select {
+	case event := <-eventHandled:
+		assert.Equal(t, `{"type":"response.failed"}`, event)
+	case <-time.After(time.Second):
+		require.FailNow(t, "failed event was not handled")
+	}
+
+	_, err = writer.Write([]byte("data: [DONE]\n"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+	select {
+	case <-handlerDone:
+	case <-time.After(time.Second):
+		require.FailNow(t, "stream handler did not stop")
+	}
+
+	assert.Equal(t, 3, info.ReceivedResponseCount)
+	require.NotNil(t, info.StreamStatus)
+	assert.True(t, info.StreamStatus.HasErrors())
+	assert.Equal(t, 2, info.StreamStatus.TotalErrorCount())
+	assert.Error(t, info.FirstResponseProtocolError())
+}
+
 // ---------- Basic correctness ----------
 
 func TestStreamScannerHandler_NilInputs(t *testing.T) {
@@ -485,6 +615,24 @@ func TestStreamScannerHandler_StreamStatus_Timeout(t *testing.T) {
 
 	require.NotNil(t, info.StreamStatus)
 	assert.Equal(t, relaycommon.StreamEndReasonTimeout, info.StreamStatus.EndReason)
+	assert.False(t, info.StreamStatus.IsNormalEnd())
+}
+
+func TestStreamScannerHandler_StreamStatus_ScannerFailureAfterValidEvent(t *testing.T) {
+	t.Parallel()
+
+	reader := &streamReadError{data: []byte("data: {\"type\":\"response.created\"}\n")}
+	c, resp, info := setupStreamTest(t, reader)
+	var received int
+
+	streamErr := StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {
+		received++
+	})
+
+	require.Nil(t, streamErr)
+	assert.Equal(t, 1, received)
+	require.NotNil(t, info.StreamStatus)
+	assert.Equal(t, relaycommon.StreamEndReasonScannerErr, info.StreamStatus.EndReason)
 	assert.False(t, info.StreamStatus.IsNormalEnd())
 }
 

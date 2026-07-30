@@ -32,6 +32,10 @@ import {
   stringifyAdvancedCustomConfig,
   validateAdvancedCustomConfig,
 } from './advanced-custom'
+import {
+  CHANNEL_TEST_ENDPOINT_TYPES,
+  type ChannelTestEndpointType,
+} from './channel-test-options'
 
 // ============================================================================
 // Form Validation Schema
@@ -43,6 +47,12 @@ const SUPPORTED_PROXY_PROTOCOLS = new Set([
   'socks5:',
   'socks5h:',
 ])
+
+const INVALID_TEST_ENDPOINT_TYPE = 'Select a valid test endpoint type'
+const INVALID_TEST_SAMPLE_SIZE =
+  'Test sample size must be a whole number from 0 to 8192'
+const INVALID_TEST_DISABLE_THRESHOLD =
+  'Test disable threshold must be zero or greater'
 
 function isOptionalProxyURL(value: string | undefined): boolean {
   const trimmedValue = value?.trim() || ''
@@ -231,6 +241,21 @@ export const channelFormSchema = z
     system_prompt: z.string().optional(),
     system_prompt_override: z.boolean().optional(),
     first_response_timeout_seconds: z.number().int().min(0).max(300).optional(),
+    test_endpoint_type: z
+      .enum(CHANNEL_TEST_ENDPOINT_TYPES, { error: INVALID_TEST_ENDPOINT_TYPE })
+      .optional(),
+    test_stream: z.boolean().optional(),
+    test_sample_tokens: z
+      .number({ error: INVALID_TEST_SAMPLE_SIZE })
+      .int(INVALID_TEST_SAMPLE_SIZE)
+      .min(0, INVALID_TEST_SAMPLE_SIZE)
+      .max(8192, INVALID_TEST_SAMPLE_SIZE)
+      .optional(),
+    test_prepend_nonce: z.boolean().optional(),
+    test_disable_threshold_seconds: z
+      .number({ error: INVALID_TEST_DISABLE_THRESHOLD })
+      .min(0, INVALID_TEST_DISABLE_THRESHOLD)
+      .optional(),
     // Type-specific settings (stored in settings JSON)
     is_enterprise_account: z.boolean().optional(), // OpenRouter specific
     vertex_key_type: z.enum(['json', 'api_key']).optional(), // Vertex AI specific
@@ -385,6 +410,11 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   system_prompt: '',
   system_prompt_override: false,
   first_response_timeout_seconds: undefined,
+  test_endpoint_type: 'auto',
+  test_stream: undefined,
+  test_sample_tokens: 0,
+  test_prepend_nonce: false,
+  test_disable_threshold_seconds: undefined,
   // Type-specific settings
   is_enterprise_account: false,
   vertex_key_type: 'json',
@@ -424,11 +454,23 @@ export function transformChannelToFormDefaults(
     system_prompt: '',
     system_prompt_override: false,
     first_response_timeout_seconds: undefined as number | undefined,
+    test_endpoint_type: 'auto' as ChannelTestEndpointType,
+    test_stream: channel.type === 57 ? true : undefined,
+    test_sample_tokens: 0,
+    test_prepend_nonce: false,
+    test_disable_threshold_seconds: undefined as number | undefined,
   }
 
   if (channel.setting) {
     try {
       const parsed = JSON.parse(channel.setting)
+      let testStream: boolean | undefined
+      if (channel.type === 57) {
+        testStream = true
+      }
+      if (typeof parsed.test_stream === 'boolean') {
+        testStream = parsed.test_stream
+      }
       extraSettings = {
         force_format: parsed.force_format || false,
         thinking_to_content: parsed.thinking_to_content || false,
@@ -439,6 +481,28 @@ export function transformChannelToFormDefaults(
         first_response_timeout_seconds:
           typeof parsed.first_response_timeout_seconds === 'number'
             ? parsed.first_response_timeout_seconds
+            : undefined,
+        test_endpoint_type:
+          typeof parsed.test_endpoint_type === 'string' &&
+          CHANNEL_TEST_ENDPOINT_TYPES.includes(
+            parsed.test_endpoint_type as ChannelTestEndpointType
+          )
+            ? (parsed.test_endpoint_type as ChannelTestEndpointType)
+            : 'auto',
+        test_stream: testStream,
+        test_sample_tokens:
+          typeof parsed.test_sample_tokens === 'number' &&
+          Number.isInteger(parsed.test_sample_tokens) &&
+          parsed.test_sample_tokens >= 0 &&
+          parsed.test_sample_tokens <= 8192
+            ? parsed.test_sample_tokens
+            : 0,
+        test_prepend_nonce: parsed.test_prepend_nonce === true,
+        test_disable_threshold_seconds:
+          typeof parsed.test_disable_threshold_seconds === 'number' &&
+          Number.isFinite(parsed.test_disable_threshold_seconds) &&
+          parsed.test_disable_threshold_seconds >= 0
+            ? parsed.test_disable_threshold_seconds
             : undefined,
       }
     } catch (error) {
@@ -561,6 +625,11 @@ function buildSettingJSON(formData: ChannelFormValues): string {
     system_prompt: formData.system_prompt || '',
     system_prompt_override: formData.system_prompt_override || false,
     first_response_timeout_seconds: formData.first_response_timeout_seconds,
+    test_endpoint_type: formData.test_endpoint_type || 'auto',
+    test_stream: formData.test_stream,
+    test_sample_tokens: formData.test_sample_tokens ?? 0,
+    test_prepend_nonce: formData.test_prepend_nonce === true,
+    test_disable_threshold_seconds: formData.test_disable_threshold_seconds,
   }
   return JSON.stringify(settingObj)
 }

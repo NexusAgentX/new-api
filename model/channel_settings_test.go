@@ -67,6 +67,39 @@ func TestAdvancedCustomChannelRequiresModelListRouteOnlyWhenUpdateChecksEnabled(
 	}
 }
 
+func TestChannelValidateSettingsChannelTestProfile(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		setting string
+		valid   bool
+	}{
+		{name: "legacy setting", setting: `{}`, valid: true},
+		{name: "responses stream profile", setting: `{"test_endpoint_type":"openai-response","test_stream":true,"test_sample_tokens":2048,"test_prepend_nonce":true,"test_disable_threshold_seconds":120}`, valid: true},
+		{name: "unknown endpoint", setting: `{"test_endpoint_type":"unknown"}`},
+		{name: "streaming embeddings", setting: `{"test_endpoint_type":"embeddings","test_stream":true}`},
+		{name: "maximum sample size", setting: `{"test_sample_tokens":8192}`, valid: true},
+		{name: "sample size above maximum", setting: `{"test_sample_tokens":8193}`},
+		{name: "negative sample size", setting: `{"test_sample_tokens":-1}`},
+		{name: "disabled response time threshold", setting: `{"test_disable_threshold_seconds":0}`, valid: true},
+		{name: "negative response time threshold", setting: `{"test_disable_threshold_seconds":-1}`},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			channel := Channel{Setting: &test.setting}
+			err := channel.ValidateSettings()
+			if test.valid {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+		})
+	}
+}
+
 func TestChannelValidateSettingsFirstResponseTimeout(t *testing.T) {
 	t.Parallel()
 

@@ -1,6 +1,7 @@
 package types
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -177,6 +178,51 @@ func (e *NewAPIError) MaskSensitiveErrorWithStatusCode() string {
 
 func (e *NewAPIError) SetMessage(message string) {
 	e.Err = errors.New(message)
+}
+
+func redactExactOpenAIError(openAIError OpenAIError, value string) OpenAIError {
+	openAIError.Message = common.RedactExactValue(openAIError.Message, value)
+	openAIError.Type = common.RedactExactValue(openAIError.Type, value)
+	openAIError.Param = common.RedactExactValue(openAIError.Param, value)
+	if code, ok := openAIError.Code.(string); ok {
+		openAIError.Code = common.RedactExactValue(code, value)
+	}
+	openAIError.Metadata = bytes.ReplaceAll(openAIError.Metadata, []byte(value), []byte(common.RedactedSensitiveValue))
+	return openAIError
+}
+
+func redactExactClaudeError(claudeError ClaudeError, value string) ClaudeError {
+	claudeError.Type = common.RedactExactValue(claudeError.Type, value)
+	claudeError.Message = common.RedactExactValue(claudeError.Message, value)
+	return claudeError
+}
+
+// RedactExactValue removes a request-scoped sensitive value from every
+// user-visible or persistable representation carried by the error.
+func (e *NewAPIError) RedactExactValue(value string) {
+	if e == nil || value == "" {
+		return
+	}
+	if e.Err != nil {
+		e.Err = errors.New(common.RedactExactValue(e.Err.Error(), value))
+	}
+	switch relayError := e.RelayError.(type) {
+	case OpenAIError:
+		e.RelayError = redactExactOpenAIError(relayError, value)
+	case *OpenAIError:
+		if relayError != nil {
+			redacted := redactExactOpenAIError(*relayError, value)
+			e.RelayError = &redacted
+		}
+	case ClaudeError:
+		e.RelayError = redactExactClaudeError(relayError, value)
+	case *ClaudeError:
+		if relayError != nil {
+			redacted := redactExactClaudeError(*relayError, value)
+			e.RelayError = &redacted
+		}
+	}
+	e.Metadata = bytes.ReplaceAll(e.Metadata, []byte(value), []byte(common.RedactedSensitiveValue))
 }
 
 func (e *NewAPIError) ToOpenAIError() OpenAIError {

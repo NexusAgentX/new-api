@@ -101,7 +101,11 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 	}
 	// codex: store must be false
 	request.Store = json.RawMessage("false")
-	// rm max_output_tokens
+	if info != nil && info.IsChannelTest && request.MaxOutputTokens != nil && *request.MaxOutputTokens > 0 && len(request.Text) == 0 {
+		// Codex rejects max_output_tokens. A strict, fixed-shape text format keeps
+		// health-check output bounded using fields the Codex protocol accepts.
+		request.Text = json.RawMessage(`{"verbosity":"low","format":{"type":"json_schema","name":"channel_test","strict":true,"schema":{"type":"object","properties":{"status":{"type":"string","enum":["ok"]}},"required":["status"],"additionalProperties":false}}}`)
+	}
 	request.MaxOutputTokens = nil
 	request.Temperature = nil
 	return request, nil

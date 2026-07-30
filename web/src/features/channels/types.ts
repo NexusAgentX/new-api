@@ -105,6 +105,20 @@ export interface ChannelSettings {
   system_prompt?: string
   system_prompt_override?: boolean
   first_response_timeout_seconds?: number
+  test_endpoint_type?:
+    | 'auto'
+    | 'openai'
+    | 'openai-response'
+    | 'openai-response-compact'
+    | 'anthropic'
+    | 'gemini'
+    | 'jina-rerank'
+    | 'image-generation'
+    | 'embeddings'
+  test_stream?: boolean
+  test_sample_tokens?: number
+  test_prepend_nonce?: boolean
+  test_disable_threshold_seconds?: number
 }
 
 export interface ChannelOtherSettings {
@@ -310,6 +324,18 @@ export interface SearchChannelsParams {
 
 export interface ChannelTestParams {
   test_model?: string
+}
+
+export interface ChannelTestParameters {
+  max_tokens?: number
+  max_completion_tokens?: number
+  max_output_tokens?: number
+  temperature?: number
+  top_p?: number
+  top_k?: number
+  frequency_penalty?: number
+  presence_penalty?: number
+  reasoning_effort?: string
 }
 
 export interface CopyChannelParams {

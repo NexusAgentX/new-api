@@ -11,13 +11,52 @@ import (
 )
 
 type ChannelSettings struct {
-	ForceFormat                 bool   `json:"force_format,omitempty"`
-	ThinkingToContent           bool   `json:"thinking_to_content,omitempty"`
-	Proxy                       string `json:"proxy"`
-	PassThroughBodyEnabled      bool   `json:"pass_through_body_enabled,omitempty"`
-	SystemPrompt                string `json:"system_prompt,omitempty"`
-	SystemPromptOverride        bool   `json:"system_prompt_override,omitempty"`
-	FirstResponseTimeoutSeconds *int   `json:"first_response_timeout_seconds,omitempty"`
+	ForceFormat                 bool     `json:"force_format,omitempty"`
+	ThinkingToContent           bool     `json:"thinking_to_content,omitempty"`
+	Proxy                       string   `json:"proxy"`
+	PassThroughBodyEnabled      bool     `json:"pass_through_body_enabled,omitempty"`
+	SystemPrompt                string   `json:"system_prompt,omitempty"`
+	SystemPromptOverride        bool     `json:"system_prompt_override,omitempty"`
+	FirstResponseTimeoutSeconds *int     `json:"first_response_timeout_seconds,omitempty"`
+	TestEndpointType            string   `json:"test_endpoint_type,omitempty"`
+	TestStream                  *bool    `json:"test_stream,omitempty"`
+	TestSampleTokens            *int     `json:"test_sample_tokens,omitempty"`
+	TestPrependNonce            *bool    `json:"test_prepend_nonce,omitempty"`
+	TestDisableThresholdSeconds *float64 `json:"test_disable_threshold_seconds,omitempty"`
+}
+
+const (
+	ChannelTestEndpointAuto    = "auto"
+	MaxChannelTestSampleTokens = 8192
+)
+
+func IsSupportedChannelTestEndpointType(endpointType string) bool {
+	switch strings.TrimSpace(endpointType) {
+	case ChannelTestEndpointAuto,
+		string(constant.EndpointTypeOpenAI),
+		string(constant.EndpointTypeOpenAIResponse),
+		string(constant.EndpointTypeOpenAIResponseCompact),
+		string(constant.EndpointTypeAnthropic),
+		string(constant.EndpointTypeGemini),
+		string(constant.EndpointTypeJinaRerank),
+		string(constant.EndpointTypeImageGeneration),
+		string(constant.EndpointTypeEmbeddings):
+		return true
+	default:
+		return false
+	}
+}
+
+func IsChannelTestEndpointStreamIncompatible(endpointType string) bool {
+	switch strings.TrimSpace(endpointType) {
+	case string(constant.EndpointTypeEmbeddings),
+		string(constant.EndpointTypeImageGeneration),
+		string(constant.EndpointTypeJinaRerank),
+		string(constant.EndpointTypeOpenAIResponseCompact):
+		return true
+	default:
+		return false
+	}
 }
 
 type VertexKeyType string

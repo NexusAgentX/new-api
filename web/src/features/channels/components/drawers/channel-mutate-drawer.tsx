@@ -190,6 +190,7 @@ import {
 import { ParamOverrideEditorDialog } from '../dialogs/param-override-editor-dialog'
 import { StatusCodeRiskDialog } from '../dialogs/status-code-risk-dialog'
 import { ModelMappingEditor } from '../model-mapping-editor'
+import { ChannelTestSettingsFields } from './channel-test-settings-fields'
 import {
   ChannelAdvancedSection,
   ChannelApiAccessSection,
@@ -302,6 +303,11 @@ const SENSITIVE_FORM_FIELDS = [
   'system_prompt',
   'system_prompt_override',
   'first_response_timeout_seconds',
+  'test_endpoint_type',
+  'test_stream',
+  'test_sample_tokens',
+  'test_prepend_nonce',
+  'test_disable_threshold_seconds',
   'allow_service_tier',
   'disable_store',
   'allow_safety_identifier',
@@ -355,6 +361,11 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.pass_through_body_enabled ||
     values.system_prompt_override ||
     values.first_response_timeout_seconds ||
+    (values.test_endpoint_type ?? 'auto') !== 'auto' ||
+    values.test_stream !== undefined ||
+    values.test_sample_tokens ||
+    values.test_prepend_nonce ||
+    values.test_disable_threshold_seconds !== undefined ||
     values.claude_beta_query ||
     values.upstream_model_update_check_enabled ||
     values.upstream_model_update_auto_sync_enabled ||
@@ -755,6 +766,13 @@ export function ChannelMutateDrawer({
   const currentWeight = form.watch('weight')
   const currentTestModel = form.watch('test_model')
   const currentAutoBan = form.watch('auto_ban')
+  const currentTestEndpointType = form.watch('test_endpoint_type')
+  const currentTestStream = form.watch('test_stream')
+  const currentTestSampleTokens = form.watch('test_sample_tokens')
+  const currentTestPrependNonce = form.watch('test_prepend_nonce')
+  const currentTestDisableThresholdSeconds = form.watch(
+    'test_disable_threshold_seconds'
+  )
   const currentTag = form.watch('tag')
   const currentRemark = form.watch('remark')
   const currentStatusCodeMapping = form.watch('status_code_mapping')
@@ -1040,6 +1058,11 @@ export function ChannelMutateDrawer({
     currentPriority ||
     currentWeight ||
     currentTestModel?.trim() ||
+    (currentTestEndpointType ?? 'auto') !== 'auto' ||
+    currentTestStream !== undefined ||
+    currentTestSampleTokens ||
+    currentTestPrependNonce ||
+    currentTestDisableThresholdSeconds !== undefined ||
     (currentAutoBan ?? 1) !== 1
   )
   const internalNotesConfigured = Boolean(
@@ -3873,6 +3896,12 @@ export function ChannelMutateDrawer({
                                   <FormMessage />
                                 </FormItem>
                               )}
+                            />
+
+                            <ChannelTestSettingsFields
+                              form={form}
+                              currentType={currentType}
+                              sensitiveLocked={sensitiveLocked}
                             />
 
                             <FormField

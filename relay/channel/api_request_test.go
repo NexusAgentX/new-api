@@ -336,6 +336,69 @@ func TestFirstResponseEventStopsTimeout(t *testing.T) {
 	require.False(t, info.IsFirstResponseAttemptTimedOut())
 }
 
+func TestChannelTestFirstResponseTimeoutIgnoresMalformedEvent(t *testing.T) {
+	originalStreamingTimeout := constant2.StreamingTimeout
+	constant2.StreamingTimeout = 30
+	t.Cleanup(func() { constant2.StreamingTimeout = originalStreamingTimeout })
+	setting := operation_setting.GetFirstResponseTimeoutSetting()
+	original := *setting
+	t.Cleanup(func() { *setting = original })
+	setting.RetryEnabled = false
+	setting.DisableEnabled = false
+	setting.TimeoutSeconds = 1
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("data: malformed\n\n"))
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer upstream.Close()
+
+	ctx, _ := newDoRequestTestContext()
+	info := &relaycommon.RelayInfo{
+		IsStream:                          true,
+		IsChannelTest:                     true,
+		MonitorFirstResponseInChannelTest: true,
+		RequireValidFirstResponseEvent:    true,
+		RelayFormat:                       types.RelayFormatOpenAIResponses,
+		ChannelMeta:                       &relaycommon.ChannelMeta{},
+	}
+	req, err := http.NewRequest(http.MethodPost, upstream.URL, strings.NewReader(`{"model":"gpt-test"}`))
+	require.NoError(t, err)
+
+	resp, err := DoRequest(ctx, req, info)
+	require.NoError(t, err)
+	t.Cleanup(func() { info.EndFirstResponseAttempt() })
+
+	timeoutErr := helper.StreamScannerHandler(ctx, resp, info, func(string, *helper.StreamResult) {})
+	require.NotNil(t, timeoutErr)
+	require.Equal(t, types.ErrorCodeUpstreamFirstResponseTimeout, timeoutErr.GetErrorCode())
+}
+
+func TestShouldMonitorFirstResponseForExplicitChannelTest(t *testing.T) {
+	setting := operation_setting.GetFirstResponseTimeoutSetting()
+	original := *setting
+	t.Cleanup(func() { *setting = original })
+	setting.RetryEnabled = false
+	setting.DisableEnabled = false
+
+	info := &relaycommon.RelayInfo{
+		IsStream:                          true,
+		IsChannelTest:                     true,
+		MonitorFirstResponseInChannelTest: true,
+		RelayFormat:                       types.RelayFormatOpenAIResponses,
+	}
+	require.True(t, shouldMonitorFirstResponse(info))
+
+	info.MonitorFirstResponseInChannelTest = false
+	require.False(t, shouldMonitorFirstResponse(info))
+
+	info.IsChannelTest = false
+	require.False(t, shouldMonitorFirstResponse(info))
+}
+
 func TestDoRequestEmitsServerTimingBreakdown(t *testing.T) {
 	t.Parallel()
 
