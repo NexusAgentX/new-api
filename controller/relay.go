@@ -151,6 +151,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		return
 	}
 	relayInfo.RequestDegradation = requestDegradation
+	service.AttachRawExchangeRelayInfo(c, relayInfo)
 
 	needSensitiveCheck := setting.ShouldCheckPromptSensitive()
 	needCountToken := constant.CountToken

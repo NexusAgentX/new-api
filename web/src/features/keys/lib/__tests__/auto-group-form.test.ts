@@ -53,6 +53,7 @@ const baseApiKey: ApiKey = {
   model_limits_enabled: false,
   model_limits: '',
   auto_group_policy: '',
+  raw_exchange_capture_mode: 'off',
   allow_ips: '',
   request_customization: '',
 }

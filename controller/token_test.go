@@ -14,11 +14,15 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type tokenAPIResponse struct {
@@ -99,9 +103,8 @@ func openTokenControllerTestDB(t *testing.T) *gorm.DB {
 func migrateTokenControllerTestDB(t *testing.T, db *gorm.DB) {
 	t.Helper()
 
-	if err := db.AutoMigrate(&model.Token{}); err != nil {
-		t.Fatalf("failed to migrate token table: %v", err)
-	}
+	require.NoError(t, db.AutoMigrate(&model.Token{}))
+	require.NoError(t, model.BackfillRawExchangeCaptureModes())
 }
 
 func setupTokenControllerTestDB(t *testing.T) *gorm.DB {
@@ -164,16 +167,17 @@ func seedToken(t *testing.T, db *gorm.DB, userID int, name string, rawKey string
 	t.Helper()
 
 	token := &model.Token{
-		UserId:         userID,
-		Name:           name,
-		Key:            rawKey,
-		Status:         common.TokenStatusEnabled,
-		CreatedTime:    1,
-		AccessedTime:   1,
-		ExpiredTime:    -1,
-		RemainQuota:    100,
-		UnlimitedQuota: true,
-		Group:          "default",
+		UserId:                 userID,
+		Name:                   name,
+		Key:                    rawKey,
+		Status:                 common.TokenStatusEnabled,
+		CreatedTime:            1,
+		AccessedTime:           1,
+		ExpiredTime:            -1,
+		RemainQuota:            100,
+		UnlimitedQuota:         true,
+		Group:                  "default",
+		RawExchangeCaptureMode: model.RawExchangeCaptureOff,
 	}
 	if err := db.Create(token).Error; err != nil {
 		t.Fatalf("failed to create token: %v", err)
@@ -362,6 +366,7 @@ func runTokenMigrationCompatibilityTest(t *testing.T, db *gorm.DB, dialect strin
 	if migratedToken.AutoGroups != "" {
 		t.Fatalf("expected legacy token to inherit global Auto groups, got %q", migratedToken.AutoGroups)
 	}
+	assert.Equal(t, model.RawExchangeCaptureOff, migratedToken.RawExchangeCaptureMode)
 
 	inserted := model.Token{
 		UserId:             8,
@@ -543,6 +548,108 @@ func TestUpdateTokenMasksKeyInResponse(t *testing.T) {
 	if strings.Contains(recorder.Body.String(), token.Key) {
 		t.Fatalf("update response leaked raw token key: %s", recorder.Body.String())
 	}
+}
+
+func TestUpdateTokenAllowsPreservingCaptureModeWhenCaptureIsUnavailable(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	settings := system_setting.GetRawExchangeSettings()
+	previousSettings := *settings
+	settings.Enabled = false
+	t.Cleanup(func() { *settings = previousSettings })
+	existing := seedToken(t, db, 1, "capture-token", "capture1234token5678")
+	require.NoError(t, db.Model(&model.Token{}).Where("id = ?", existing.Id).
+		Update("raw_exchange_capture_mode", model.RawExchangeCaptureAll).Error)
+
+	body := map[string]any{
+		"id":                        existing.Id,
+		"name":                      "capture-token-updated",
+		"expired_time":              -1,
+		"remain_quota":              100,
+		"unlimited_quota":           true,
+		"model_limits_enabled":      false,
+		"model_limits":              "",
+		"group":                     "default",
+		"cross_group_retry":         false,
+		"raw_exchange_capture_mode": model.RawExchangeCaptureAll,
+	}
+	ctx, recorder := newAuthenticatedContext(t, http.MethodPut, "/api/token/", body, 1)
+	UpdateToken(ctx)
+	response := decodeAPIResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+
+	var updated model.Token
+	require.NoError(t, db.First(&updated, existing.Id).Error)
+	assert.Equal(t, "capture-token-updated", updated.Name)
+	assert.Equal(t, model.RawExchangeCaptureAll, updated.RawExchangeCaptureMode)
+}
+
+func TestUpdateTokenRejectsEnablingCaptureWhenCaptureIsUnavailable(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	settings := system_setting.GetRawExchangeSettings()
+	previousSettings := *settings
+	settings.Enabled = false
+	t.Cleanup(func() { *settings = previousSettings })
+	existing := seedToken(t, db, 1, "capture-token", "capture1234token5678")
+	require.NoError(t, db.Model(&model.Token{}).Where("id = ?", existing.Id).
+		Update("raw_exchange_capture_mode", model.RawExchangeCaptureOff).Error)
+
+	body := map[string]any{
+		"id":                        existing.Id,
+		"name":                      existing.Name,
+		"expired_time":              -1,
+		"remain_quota":              100,
+		"unlimited_quota":           true,
+		"model_limits_enabled":      false,
+		"model_limits":              "",
+		"group":                     "default",
+		"cross_group_retry":         false,
+		"raw_exchange_capture_mode": model.RawExchangeCaptureAll,
+	}
+	ctx, recorder := newAuthenticatedContext(t, http.MethodPut, "/api/token/", body, 1)
+	UpdateToken(ctx)
+	response := decodeAPIResponse(t, recorder)
+	assert.False(t, response.Success)
+
+	var unchanged model.Token
+	require.NoError(t, db.First(&unchanged, existing.Id).Error)
+	assert.Equal(t, model.RawExchangeCaptureOff, unchanged.RawExchangeCaptureMode)
+}
+
+func TestAddTokenRejectsInvalidRawExchangeCaptureModeWithBadRequest(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	ctx, recorder := newAuthenticatedContext(t, http.MethodPost, "/api/token/", map[string]any{
+		"name":                      "invalid-capture-mode",
+		"raw_exchange_capture_mode": "sometimes",
+	}, 1)
+
+	AddToken(ctx)
+
+	assert.Equal(t, http.StatusBadRequest, recorder.Code)
+	response := decodeAPIResponse(t, recorder)
+	assert.False(t, response.Success)
+	var count int64
+	require.NoError(t, db.Model(&model.Token{}).Count(&count).Error)
+	assert.Zero(t, count)
+}
+
+func TestUpdateTokenRejectsInvalidRawExchangeCaptureModeWithBadRequest(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	existing := seedToken(t, db, 1, "capture-token", "capture1234token5678")
+	ctx, recorder := newAuthenticatedContext(t, http.MethodPut, "/api/token/", map[string]any{
+		"id":                        existing.Id,
+		"name":                      "must-not-persist",
+		"raw_exchange_capture_mode": "sometimes",
+	}, 1)
+
+	UpdateToken(ctx)
+
+	assert.Equal(t, http.StatusBadRequest, recorder.Code)
+	response := decodeAPIResponse(t, recorder)
+	assert.False(t, response.Success)
+	var unchanged model.Token
+	require.NoError(t, db.First(&unchanged, existing.Id).Error)
+	assert.Equal(t, existing.Name, unchanged.Name)
+	assert.Equal(t, model.RawExchangeCaptureOff, unchanged.RawExchangeCaptureMode)
 }
 
 func TestGetTokenKeyRequiresOwnershipAndReturnsFullKey(t *testing.T) {

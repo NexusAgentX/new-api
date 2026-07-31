@@ -1,6 +1,8 @@
 package common
 
 import (
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +13,33 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+var errRequestBodyRead = errors.New("request body read failed")
+
+type failingRequestBodyReader struct {
+	reads int
+}
+
+func (r *failingRequestBodyReader) Read(_ []byte) (int, error) {
+	r.reads++
+	return 0, errRequestBodyRead
+}
+
+func TestGetRequestBodyCachesReadFailure(t *testing.T) {
+	t.Parallel()
+
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	reader := &failingRequestBodyReader{}
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", io.NopCloser(reader))
+
+	_, err := GetRequestBody(ctx)
+	require.ErrorIs(t, err, errRequestBodyRead)
+	_, err = GetRequestBody(ctx)
+	require.ErrorIs(t, err, errRequestBodyRead)
+	require.Equal(t, 1, reader.reads)
+}
 
 func TestGetRequestBodyRecordsReceiveCompletion(t *testing.T) {
 	t.Parallel()

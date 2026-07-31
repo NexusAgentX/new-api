@@ -48,6 +48,7 @@ function createApiKey(
     model_limits: '',
     auto_group_policy: autoGroupPolicy,
     request_customization: requestCustomization,
+    raw_exchange_capture_mode: 'off',
     allow_ips: '',
   }
 }
@@ -118,6 +119,21 @@ describe('API key auto-group policy form', () => {
         max_ratio: undefined,
       },
     ])
+  })
+
+  test('preserves the raw exchange capture mode across create and edit', () => {
+    const values = getApiKeyFormDefaultValues(false)
+    values.raw_exchange_capture_mode = 'non_success'
+
+    const payload = transformFormDataToPayload(values)
+    assert.equal(payload.raw_exchange_capture_mode, 'non_success')
+
+    const apiKey = createApiKey('')
+    apiKey.raw_exchange_capture_mode = 'all'
+    assert.equal(
+      transformApiKeyToFormDefaults(apiKey).raw_exchange_capture_mode,
+      'all'
+    )
   })
 
   test('omits an empty policy', () => {

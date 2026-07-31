@@ -47,6 +47,9 @@ export const apiKeySchema = z.object({
   model_limits: z.string().nullish().default(''),
   auto_group_policy: z.string().nullish().default(''),
   request_customization: z.string().nullish().default(''),
+  raw_exchange_capture_mode: z
+    .enum(['off', 'non_success', 'all'])
+    .default('off'),
   allow_ips: z.string().nullish().default(''),
 })
 
@@ -94,6 +97,7 @@ export interface ApiKeyFormData {
   model_limits: string
   auto_group_policy: string
   request_customization: string
+  raw_exchange_capture_mode: 'off' | 'non_success' | 'all'
   allow_ips: string
   group: string
   auto_groups: string[]

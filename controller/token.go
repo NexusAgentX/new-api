@@ -269,6 +269,17 @@ func AddToken(c *gin.Context) {
 		return
 	}
 	token := request.Token
+	token.RawExchangeCaptureMode, err = model.NormalizeRawExchangeCaptureMode(token.RawExchangeCaptureMode)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	if token.RawExchangeCaptureMode != model.RawExchangeCaptureOff {
+		if err := service.RawExchangeCaptureReady(); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	}
 	token.RequestCustomization, err = model.NormalizeTokenRequestCustomization(token.RequestCustomization)
 	if err != nil {
 		common.ApiErrorI18n(c, i18n.MsgTokenRequestCustomizationInvalid, map[string]any{"Error": err.Error()})
@@ -324,22 +335,23 @@ func AddToken(c *gin.Context) {
 		return
 	}
 	cleanToken := model.Token{
-		UserId:               c.GetInt("id"),
-		Name:                 token.Name,
-		Key:                  key,
-		CreatedTime:          common.GetTimestamp(),
-		AccessedTime:         common.GetTimestamp(),
-		ExpiredTime:          token.ExpiredTime,
-		RemainQuota:          token.RemainQuota,
-		UnlimitedQuota:       token.UnlimitedQuota,
-		ModelLimitsEnabled:   token.ModelLimitsEnabled,
-		ModelLimits:          token.ModelLimits,
-		AllowIps:             token.AllowIps,
-		Group:                token.Group,
-		CrossGroupRetry:      token.CrossGroupRetry,
-		AutoGroups:           token.AutoGroups,
-		AutoGroupPolicy:      token.AutoGroupPolicy,
-		RequestCustomization: token.RequestCustomization,
+		UserId:                 c.GetInt("id"),
+		Name:                   token.Name,
+		Key:                    key,
+		CreatedTime:            common.GetTimestamp(),
+		AccessedTime:           common.GetTimestamp(),
+		ExpiredTime:            token.ExpiredTime,
+		RemainQuota:            token.RemainQuota,
+		UnlimitedQuota:         token.UnlimitedQuota,
+		ModelLimitsEnabled:     token.ModelLimitsEnabled,
+		ModelLimits:            token.ModelLimits,
+		AllowIps:               token.AllowIps,
+		Group:                  token.Group,
+		CrossGroupRetry:        token.CrossGroupRetry,
+		AutoGroups:             token.AutoGroups,
+		RawExchangeCaptureMode: token.RawExchangeCaptureMode,
+		AutoGroupPolicy:        token.AutoGroupPolicy,
+		RequestCustomization:   token.RequestCustomization,
 	}
 	err = cleanToken.Insert()
 	if err != nil {
@@ -377,6 +389,11 @@ func UpdateToken(c *gin.Context) {
 	}
 	token := request.Token
 	if statusOnly == "" {
+		token.RawExchangeCaptureMode, err = model.NormalizeRawExchangeCaptureMode(token.RawExchangeCaptureMode)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+			return
+		}
 		token.RequestCustomization, err = model.NormalizeTokenRequestCustomization(token.RequestCustomization)
 		if err != nil {
 			common.ApiErrorI18n(c, i18n.MsgTokenRequestCustomizationInvalid, map[string]any{"Error": err.Error()})
@@ -407,6 +424,14 @@ func UpdateToken(c *gin.Context) {
 	if err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	if statusOnly == "" &&
+		cleanToken.RawExchangeCaptureMode == model.RawExchangeCaptureOff &&
+		token.RawExchangeCaptureMode != model.RawExchangeCaptureOff {
+		if err := service.RawExchangeCaptureReady(); err != nil {
+			common.ApiError(c, err)
+			return
+		}
 	}
 	if token.Status == common.TokenStatusEnabled {
 		if cleanToken.Status == common.TokenStatusExpired && cleanToken.ExpiredTime <= common.GetTimestamp() && cleanToken.ExpiredTime != -1 {
@@ -439,6 +464,7 @@ func UpdateToken(c *gin.Context) {
 				return
 			}
 		}
+		cleanToken.RawExchangeCaptureMode = token.RawExchangeCaptureMode
 		cleanToken.AutoGroupPolicy = token.AutoGroupPolicy
 		cleanToken.RequestCustomization = token.RequestCustomization
 	}

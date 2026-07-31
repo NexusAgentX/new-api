@@ -176,6 +176,7 @@ func main() {
 		common.FatalLog("failed to configure trusted proxies: " + err.Error())
 		return
 	}
+	server.Use(middleware.RawExchangeLifecycle())
 	server.Use(gin.CustomRecovery(func(c *gin.Context, err any) {
 		common.SysLog(fmt.Sprintf("panic detected: %v", err))
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -323,6 +324,12 @@ func InitResources() error {
 		}
 	}
 	model.InitOptionMap()
+
+	if err := service.InitRawExchangeStorage(); err != nil {
+		common.SysError("failed to initialize raw exchange storage: " + err.Error())
+	} else {
+		service.StartRawExchangeCommitWorker()
+	}
 
 	// 清理旧的磁盘缓存文件
 	common.CleanupOldCacheFiles()

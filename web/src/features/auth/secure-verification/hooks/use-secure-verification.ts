@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import i18next from 'i18next'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
 import {
@@ -69,10 +69,6 @@ export function useSecureVerification(
     setMethods(result)
     return result
   }, [])
-
-  useEffect(() => {
-    fetchVerificationMethods()
-  }, [fetchVerificationMethods])
 
   const reset = useCallback(() => {
     setState(initialState)

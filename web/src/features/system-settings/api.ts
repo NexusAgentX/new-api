@@ -22,6 +22,10 @@ import type {
   ConfirmPaymentComplianceResponse,
   FetchUpstreamRatiosRequest,
   LogCleanupTask,
+  RawExchangeAdminStatsResponse,
+  RawExchangeCleanupFilter,
+  RawExchangeCleanupPreview,
+  RawExchangeCleanupTask,
   SystemOptionsResponse,
   SystemTaskListResponse,
   SystemTaskResponse,
@@ -70,9 +74,51 @@ export async function getCurrentLogCleanupTask() {
   return res.data
 }
 
-export async function getSystemTask(taskId: string) {
-  const res = await api.get<SystemTaskResponse<LogCleanupTask>>(
+export async function getSystemTask<TTask = LogCleanupTask>(taskId: string) {
+  const res = await api.get<SystemTaskResponse<TTask>>(
     `/api/system-task/${taskId}`
+  )
+  return res.data
+}
+
+export async function getRawExchangeAdminStats() {
+  const res = await api.get<RawExchangeAdminStatsResponse>(
+    '/api/raw-exchanges/admin/stats'
+  )
+  return res.data
+}
+
+export async function previewRawExchangeCleanup(
+  filter: RawExchangeCleanupFilter
+) {
+  const res = await api.post<{
+    success: boolean
+    message: string
+    data?: {
+      preview: RawExchangeCleanupPreview
+      preview_token: string
+      expires_at: number
+    }
+  }>('/api/raw-exchanges/admin/cleanup-preview', { filter })
+  return res.data
+}
+
+export async function startRawExchangeCleanup(
+  previewToken: string,
+  confirmation: string | undefined,
+  proofToken: string
+) {
+  const res = await api.post<{
+    success: boolean
+    message: string
+    data?: { task: RawExchangeCleanupTask; created: boolean }
+  }>(
+    '/api/system-task/raw-exchange-cleanup',
+    {
+      preview_token: previewToken,
+      confirmation,
+    },
+    { headers: { 'X-Security-Proof': proofToken } }
   )
   return res.data
 }

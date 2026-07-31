@@ -15,19 +15,21 @@ const (
 	ContextKeyRequestArrivedAt ContextKey = "request_arrived_at"
 	// ContextKeyRequestBodyReceivedAt marks when the relay finished reading the
 	// client request body; Server-Timing uses it to split upload from processing.
-	ContextKeyRequestBodyReceivedAt ContextKey = "request_body_received_at"
+	ContextKeyRequestBodyReceivedAt   ContextKey = "request_body_received_at"
+	ContextKeyOriginalContentEncoding ContextKey = "original_content_encoding"
 
 	/* token related keys */
-	ContextKeyTokenUnlimited         ContextKey = "token_unlimited_quota"
-	ContextKeyTokenKey               ContextKey = "token_key"
-	ContextKeyTokenId                ContextKey = "token_id"
-	ContextKeyTokenGroup             ContextKey = "token_group"
-	ContextKeyTokenSpecificChannelId ContextKey = "specific_channel_id"
-	ContextKeyTokenModelLimitEnabled ContextKey = "token_model_limit_enabled"
-	ContextKeyTokenModelLimit        ContextKey = "token_model_limit"
-	ContextKeyTokenCrossGroupRetry   ContextKey = "token_cross_group_retry"
-	ContextKeyTokenAutoGroups        ContextKey = "token_auto_groups"
-	ContextKeyTokenAutoGroupPolicy   ContextKey = "token_auto_group_policy"
+	ContextKeyTokenUnlimited              ContextKey = "token_unlimited_quota"
+	ContextKeyTokenKey                    ContextKey = "token_key"
+	ContextKeyTokenId                     ContextKey = "token_id"
+	ContextKeyTokenGroup                  ContextKey = "token_group"
+	ContextKeyTokenSpecificChannelId      ContextKey = "specific_channel_id"
+	ContextKeyTokenModelLimitEnabled      ContextKey = "token_model_limit_enabled"
+	ContextKeyTokenModelLimit             ContextKey = "token_model_limit"
+	ContextKeyTokenCrossGroupRetry        ContextKey = "token_cross_group_retry"
+	ContextKeyTokenAutoGroups             ContextKey = "token_auto_groups"
+	ContextKeyTokenAutoGroupPolicy        ContextKey = "token_auto_group_policy"
+	ContextKeyTokenRawExchangeCaptureMode ContextKey = "token_raw_exchange_capture_mode"
 
 	ContextKeyTokenModelMapping        ContextKey = "token_model_mapping"
 	ContextKeyRequestCustomizationDone ContextKey = "request_customization_done"

@@ -22,6 +22,9 @@ export type SecurityProofScope =
   | 'channel.key.read'
   | 'passkey.register'
   | 'passkey.delete'
+  | 'raw_exchange.read'
+  | 'raw_exchange.delete'
+  | 'raw_exchange.admin.cleanup'
 
 export interface SecurityProof {
   proof_token: string

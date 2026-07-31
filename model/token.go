@@ -12,24 +12,25 @@ import (
 )
 
 type Token struct {
-	Id                 int            `json:"id"`
-	UserId             int            `json:"user_id" gorm:"index"`
-	Key                string         `json:"key" gorm:"type:varchar(128);uniqueIndex"`
-	Status             int            `json:"status" gorm:"default:1"`
-	Name               string         `json:"name" gorm:"index" `
-	CreatedTime        int64          `json:"created_time" gorm:"bigint"`
-	AccessedTime       int64          `json:"accessed_time" gorm:"bigint"`
-	ExpiredTime        int64          `json:"expired_time" gorm:"bigint;default:-1"` // -1 means never expired
-	RemainQuota        int            `json:"remain_quota" gorm:"default:0"`
-	UnlimitedQuota     bool           `json:"unlimited_quota"`
-	ModelLimitsEnabled bool           `json:"model_limits_enabled"`
-	ModelLimits        string         `json:"model_limits" gorm:"type:text"`
-	AllowIps           *string        `json:"allow_ips" gorm:"default:''"`
-	UsedQuota          int            `json:"used_quota" gorm:"default:0"` // used quota
-	Group              string         `json:"group" gorm:"default:''"`
-	CrossGroupRetry    bool           `json:"cross_group_retry"` // 跨分组重试，仅auto分组有效
-	AutoGroups         string         `json:"-" gorm:"type:text"`
-	DeletedAt          gorm.DeletedAt `gorm:"index"`
+	Id                     int            `json:"id"`
+	UserId                 int            `json:"user_id" gorm:"index"`
+	Key                    string         `json:"key" gorm:"type:varchar(128);uniqueIndex"`
+	Status                 int            `json:"status" gorm:"default:1"`
+	Name                   string         `json:"name" gorm:"index" `
+	CreatedTime            int64          `json:"created_time" gorm:"bigint"`
+	AccessedTime           int64          `json:"accessed_time" gorm:"bigint"`
+	ExpiredTime            int64          `json:"expired_time" gorm:"bigint;default:-1"` // -1 means never expired
+	RemainQuota            int            `json:"remain_quota" gorm:"default:0"`
+	UnlimitedQuota         bool           `json:"unlimited_quota"`
+	ModelLimitsEnabled     bool           `json:"model_limits_enabled"`
+	ModelLimits            string         `json:"model_limits" gorm:"type:text"`
+	AllowIps               *string        `json:"allow_ips" gorm:"default:''"`
+	UsedQuota              int            `json:"used_quota" gorm:"default:0"` // used quota
+	Group                  string         `json:"group" gorm:"default:''"`
+	CrossGroupRetry        bool           `json:"cross_group_retry"` // 跨分组重试，仅auto分组有效
+	AutoGroups             string         `json:"-" gorm:"type:text"`
+	RawExchangeCaptureMode string         `json:"raw_exchange_capture_mode" gorm:"type:varchar(16)"`
+	DeletedAt              gorm.DeletedAt `gorm:"index"`
 
 	AutoGroupPolicy      string `json:"auto_group_policy,omitempty" gorm:"type:text"`
 	RequestCustomization string `json:"request_customization,omitempty" gorm:"type:text"`
@@ -312,16 +313,23 @@ func GetTokenByKey(key string, fromDB bool) (token *Token, err error) {
 }
 
 func (token *Token) Insert() error {
-	var err error
-	err = DB.Create(token).Error
-	return err
+	mode, err := NormalizeRawExchangeCaptureMode(token.RawExchangeCaptureMode)
+	if err != nil {
+		return err
+	}
+	token.RawExchangeCaptureMode = mode
+	return DB.Create(token).Error
 }
 
 // Update Make sure your token's fields is completed, because this will update non-zero values
 func (token *Token) Update() (err error) {
+	token.RawExchangeCaptureMode, err = NormalizeRawExchangeCaptureMode(token.RawExchangeCaptureMode)
+	if err != nil {
+		return err
+	}
 	err = DB.Model(token).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota",
 		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry", "auto_groups",
-		"auto_group_policy", "request_customization").Updates(token).Error
+		"raw_exchange_capture_mode", "auto_group_policy", "request_customization").Updates(token).Error
 	if shouldUpdateRedis(true, err) {
 		if cacheErr := cacheSetToken(*token); cacheErr != nil {
 			common.SysLog("failed to update token cache: " + cacheErr.Error())
@@ -359,7 +367,12 @@ func (token *Token) Delete() (err error) {
 			})
 		}
 	}()
-	err = DB.Delete(token).Error
+	err = DB.Transaction(func(tx *gorm.DB) error {
+		if err := markRawExchangeArchivesDeletePending(tx, []int{token.Id}, token.UserId); err != nil {
+			return err
+		}
+		return tx.Delete(token).Error
+	})
 	return err
 }
 
@@ -483,6 +496,11 @@ func BatchDeleteTokens(ids []int, userId int) (int, error) {
 
 	var tokens []Token
 	if err := tx.Where("user_id = ? AND id IN (?)", userId, ids).Find(&tokens).Error; err != nil {
+		tx.Rollback()
+		return 0, err
+	}
+
+	if err := markRawExchangeArchivesDeletePending(tx, ids, userId); err != nil {
 		tx.Rollback()
 		return 0, err
 	}

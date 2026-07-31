@@ -88,6 +88,102 @@ export type LogCleanupTaskResult = {
   deleted_count: number
 }
 
+export type RawExchangeCleanupFilter = {
+  after_timestamp?: number
+  before_timestamp?: number
+  user_id?: number
+  token_id?: number
+  capture_mode?: 'non_success' | 'all'
+  outcome?: 'success' | 'non_success'
+  status?: string
+  statuses?: string[]
+}
+
+export type RawExchangeCleanupPreview = {
+  count: number
+  request_stored_bytes: number
+  response_stored_bytes: number
+  total_stored_bytes: number
+}
+
+export type RawExchangeAdminStats = {
+  total_count: number
+  request_bytes: number
+  response_bytes: number
+  request_stored_bytes: number
+  response_stored_bytes: number
+  used_bytes: number
+  oldest_created_at: number
+  newest_created_at: number
+  statuses: Array<{
+    status: string
+    count: number
+    stored_bytes: number
+  }>
+  top_users: Array<{ scope_id: number; count: number; stored_bytes: number }>
+  top_tokens: Array<{ scope_id: number; count: number; stored_bytes: number }>
+}
+
+export type RawExchangeAdminStatsResponse = {
+  success: boolean
+  message: string
+  data?: {
+    stats: RawExchangeAdminStats
+    capture_enabled: boolean
+    storage_ready: boolean
+    storage_error?: string
+    storage_backend: string
+    retention_days: number
+    capacity_bytes: number
+    max_request_bytes: number
+    max_response_bytes: number
+    max_exchange_bytes: number
+    latest_gc?: RawExchangeGCTask | null
+  }
+}
+
+export type RawExchangeCleanupTaskPayload = {
+  filter: RawExchangeCleanupFilter
+  batch_size: number
+}
+
+export type RawExchangeCleanupTaskState = {
+  total: number
+  processed: number
+  progress: number
+  remaining: number
+}
+
+export type RawExchangeCleanupTaskResult = {
+  matched: number
+  processed: number
+  deleted: number
+  already_deleted: number
+  skipped: number
+  failed: number
+  request_bytes_freed: number
+  response_bytes_freed: number
+  total_bytes_freed: number
+  stale_spool_deleted?: number
+  missing_marked?: number
+  orphan_objects_deleted?: number
+  tombstones_purged?: number
+  usage_adjustment_bytes?: number
+  reconcile_failed?: number
+}
+
+export type RawExchangeGCTask = SystemTask<
+  null,
+  RawExchangeCleanupTaskState,
+  RawExchangeCleanupTaskResult
+>
+
+export type RawExchangeCleanupTask = SystemTask<
+  RawExchangeCleanupTaskPayload,
+  RawExchangeCleanupTaskState,
+  RawExchangeCleanupTaskResult
+>
+
 export type LogCleanupTask = SystemTask<
   LogCleanupTaskPayload,
   LogCleanupTaskState,
