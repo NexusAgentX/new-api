@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { type Table } from '@tanstack/react-table'
+import type { Table } from '@tanstack/react-table'
 import { X } from 'lucide-react'
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -34,6 +34,7 @@ import { cn } from '@/lib/utils'
 type DataTableBulkActionsProps<TData> = {
   table: Table<TData>
   entityName: string
+  entityNamePlural?: string
   children: React.ReactNode
 }
 
@@ -50,11 +51,14 @@ type DataTableBulkActionsProps<TData> = {
 export function DataTableBulkActions<TData>({
   table,
   entityName,
+  entityNamePlural,
   children,
 }: DataTableBulkActionsProps<TData>): React.ReactNode | null {
   const { t } = useTranslation()
   const selectedRows = table.getFilteredSelectedRowModel().rows
   const selectedCount = selectedRows.length
+  const selectedEntityName =
+    selectedCount > 1 ? (entityNamePlural ?? `${entityName}s`) : entityName
   const toolbarRef = useRef<HTMLDivElement>(null)
   const buttonsRef = useRef<NodeListOf<HTMLButtonElement> | null>(null)
   const [announcement, setAnnouncement] = useState('')
@@ -66,7 +70,10 @@ export function DataTableBulkActions<TData>({
   // Announce selection changes to screen readers
   useEffect(() => {
     if (selectedCount > 0) {
-      const message = `${selectedCount} ${entityName}${selectedCount > 1 ? 's' : ''} selected. Bulk actions toolbar is available.`
+      const message = t(
+        '{{count}} {{entity}} selected. Bulk actions toolbar is available.',
+        { count: selectedCount, entity: selectedEntityName }
+      )
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setAnnouncement(message)
 
@@ -74,7 +81,7 @@ export function DataTableBulkActions<TData>({
       const timer = setTimeout(() => setAnnouncement(''), 3000)
       return () => clearTimeout(timer)
     }
-  }, [selectedCount, entityName])
+  }, [selectedCount, selectedEntityName, t])
 
   const handleClearSelection = () => {
     table.resetRowSelection()
@@ -84,31 +91,32 @@ export function DataTableBulkActions<TData>({
     const buttons = buttonsRef.current
     if (!buttons) return
 
-    const currentIndex = Array.from(buttons).findIndex(
-      (button) => button === document.activeElement
+    const buttonList = [...buttons]
+    const currentIndex = buttonList.indexOf(
+      document.activeElement as HTMLButtonElement
     )
 
     switch (event.key) {
       case 'ArrowRight': {
         event.preventDefault()
         const nextIndex = (currentIndex + 1) % buttons.length
-        buttons[nextIndex]?.focus()
+        buttonList.at(nextIndex)?.focus()
         break
       }
       case 'ArrowLeft': {
         event.preventDefault()
         const prevIndex =
           currentIndex === 0 ? buttons.length - 1 : currentIndex - 1
-        buttons[prevIndex]?.focus()
+        buttonList.at(prevIndex)?.focus()
         break
       }
       case 'Home':
         event.preventDefault()
-        buttons[0]?.focus()
+        buttonList.at(0)?.focus()
         break
       case 'End':
         event.preventDefault()
-        buttons[buttons.length - 1]?.focus()
+        buttonList.at(-1)?.focus()
         break
       case 'Escape': {
         // Check if the Escape key came from a dropdown trigger or content
@@ -161,7 +169,10 @@ export function DataTableBulkActions<TData>({
       <div
         ref={toolbarRef}
         role='toolbar'
-        aria-label={`Bulk actions for ${selectedCount} selected ${entityName}${selectedCount > 1 ? 's' : ''}`}
+        aria-label={t('Bulk actions for {{count}} selected {{entity}}', {
+          count: selectedCount,
+          entity: selectedEntityName,
+        })}
         aria-describedby='bulk-actions-description'
         tabIndex={-1}
         onKeyDown={handleKeyDown}
@@ -213,14 +224,11 @@ export function DataTableBulkActions<TData>({
             <Badge
               variant='default'
               className='min-w-8 rounded-lg'
-              aria-label={`${selectedCount} selected`}
+              aria-label={t('{{count}} selected', { count: selectedCount })}
             >
               {selectedCount}
             </Badge>{' '}
-            <span className='hidden sm:inline'>
-              {entityName}
-              {selectedCount > 1 ? 's' : ''}
-            </span>{' '}
+            <span className='hidden sm:inline'>{selectedEntityName}</span>{' '}
             {t('selected')}
           </div>
 

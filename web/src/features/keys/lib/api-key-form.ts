@@ -79,6 +79,7 @@ export function getApiKeyFormSchema(t: TFunction) {
       unlimited_quota: z.boolean(),
       model_limits: z.array(z.string()),
       model_mapping: z.string(),
+      raw_exchange_capture_mode: z.enum(['off', 'non_success', 'all']),
       allow_ips: z.string().optional(),
       group: z.string().optional(),
       cross_group_retry: z.boolean().optional(),
@@ -195,6 +196,7 @@ export const API_KEY_FORM_DEFAULT_VALUES: ApiKeyFormValues = {
   unlimited_quota: true,
   model_limits: [],
   model_mapping: '',
+  raw_exchange_capture_mode: 'off',
   allow_ips: '',
   group: DEFAULT_GROUP,
   cross_group_retry: true,
@@ -293,6 +295,7 @@ export function transformFormDataToPayload(
     request_customization: requestCustomization.model_mapping
       ? JSON.stringify(requestCustomization)
       : '',
+    raw_exchange_capture_mode: data.raw_exchange_capture_mode,
     allow_ips: data.allow_ips || '',
     group: data.group || '',
     cross_group_retry: data.group === 'auto' ? !!data.cross_group_retry : false,
@@ -417,6 +420,7 @@ export function transformApiKeyToFormDefaults(
       ? apiKey.model_limits.split(',').filter(Boolean)
       : [],
     model_mapping: extractTokenModelMapping(apiKey.request_customization),
+    raw_exchange_capture_mode: apiKey.raw_exchange_capture_mode || 'off',
     auto_group_policy: extractAutoGroupPolicy(apiKey.auto_group_policy),
     allow_ips: apiKey.allow_ips || '',
     group: apiKey.group || DEFAULT_GROUP,

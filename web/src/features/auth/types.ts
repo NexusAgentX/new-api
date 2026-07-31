@@ -134,6 +134,7 @@ export interface SystemStatus {
     password_login_enabled?: boolean
     password_register_enabled?: boolean
     custom_oauth_providers?: CustomOAuthProviderInfo[]
+    raw_exchange_capture_available?: boolean
     [key: string]: unknown
   }
   // Allow direct access to common properties
@@ -178,6 +179,7 @@ export interface SystemStatus {
   password_login_enabled?: boolean
   password_register_enabled?: boolean
   custom_oauth_providers?: CustomOAuthProviderInfo[]
+  raw_exchange_capture_available?: boolean
   [key: string]: unknown
 }
 

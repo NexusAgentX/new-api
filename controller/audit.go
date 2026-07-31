@@ -30,6 +30,10 @@ var auditContentTemplates = map[string]string{
 	"user.reset_passkey":    "Reset the user passkey",
 	"option.update":         "Updated system setting ${key}",
 
+	"raw_exchange.cleanup_preview":  "Previewed cleanup for ${count} raw exchange archives",
+	"raw_exchange.cleanup_start":    "Started raw exchange cleanup task ${task_id} for ${count} archives",
+	"raw_exchange.cleanup_complete": "Completed raw exchange cleanup task ${task_id} with status ${status}: ${deleted} deleted, ${failed} failed",
+
 	"channel.create":             "Created channel ${name} (type ${type}, count ${count})",
 	"channel.update":             "Updated channel ${name} (ID: ${id})",
 	"channel.delete":             "Deleted channel ${name} (ID: ${id})",

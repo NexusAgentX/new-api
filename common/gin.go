@@ -20,6 +20,7 @@ import (
 
 const KeyRequestBody = "key_request_body"
 const KeyBodyStorage = "key_body_storage"
+const KeyBodyStorageError = "key_body_storage_error"
 
 var ErrRequestBodyTooLarge = errors.New("request body too large")
 
@@ -35,6 +36,12 @@ func IsRequestBodyTooLargeError(err error) bool {
 }
 
 func GetRequestBody(c *gin.Context) (io.Seeker, error) {
+	if cachedErr, exists := c.Get(KeyBodyStorageError); exists && cachedErr != nil {
+		if err, ok := cachedErr.(error); ok {
+			return nil, err
+		}
+	}
+
 	// 首先检查是否有 BodyStorage 缓存
 	if storage, exists := c.Get(KeyBodyStorage); exists && storage != nil {
 		if bs, ok := storage.(BodyStorage); ok {
@@ -72,8 +79,9 @@ func GetRequestBody(c *gin.Context) (io.Seeker, error) {
 
 	if err != nil {
 		if IsRequestBodyTooLargeError(err) {
-			return nil, errors.Wrap(ErrRequestBodyTooLarge, fmt.Sprintf("request body exceeds %d MB", maxMB))
+			err = errors.Wrap(ErrRequestBodyTooLarge, fmt.Sprintf("request body exceeds %d MB", maxMB))
 		}
+		c.Set(KeyBodyStorageError, err)
 		return nil, err
 	}
 
@@ -83,6 +91,7 @@ func GetRequestBody(c *gin.Context) (io.Seeker, error) {
 
 	// 缓存存储对象
 	c.Set(KeyBodyStorage, storage)
+	c.Set(KeyBodyStorageError, nil)
 
 	return storage, nil
 }
@@ -113,6 +122,7 @@ func ReplaceBodyStorage(c *gin.Context, data []byte) error {
 		}
 	}
 	c.Set(KeyBodyStorage, storage)
+	c.Set(KeyBodyStorageError, nil)
 	c.Set(KeyRequestBody, nil)
 	c.Request.Body = io.NopCloser(storage)
 	c.Request.ContentLength = int64(len(data))

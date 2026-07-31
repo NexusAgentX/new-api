@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
-import { type ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef } from '@tanstack/react-table'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -36,11 +36,13 @@ import {
   LOG_TYPE_ALL_VALUE,
   LOG_TYPE_ENUM,
 } from '../constants'
+import type { UsageLog } from '../data/schema'
 import { useColumnsByCategory } from '../lib/columns'
 import { parseLogOther } from '../lib/format'
 import { fetchLogsByCategory } from '../lib/utils'
 import type { LogCategory } from '../types'
 import { CommonLogsFilterBar } from './common-logs-filter-bar'
+import { RawExchangeBulkActions } from './raw-exchange-bulk-actions'
 import { TaskLogsFilterBar } from './task-logs-filter-bar'
 import { UsageLogsMobileList } from './usage-logs-mobile-card'
 import { useLogsViewScope } from './usage-logs-provider'
@@ -64,8 +66,13 @@ function getColumnVisibilityStorageKey(
 }
 
 function deserializeLogTypeFilter(value: unknown): unknown[] {
-  const values = Array.isArray(value) ? value : value ? [value] : []
-  return values.filter((item) => String(item) !== LOG_TYPE_ALL_VALUE)
+  if (Array.isArray(value)) {
+    return value.filter((item) => String(item) !== LOG_TYPE_ALL_VALUE)
+  }
+  if (value) {
+    return String(value) === LOG_TYPE_ALL_VALUE ? [] : [value]
+  }
+  return []
 }
 
 interface UsageLogsTableProps {
@@ -155,6 +162,7 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
   const logs = data?.items || []
   const columns = useColumnsByCategory(logCategory, isAdmin)
   const isLoadingData = isLoading || (isFetching && !data)
+  const isCommon = logCategory === 'common'
 
   const { table } = useDataTable({
     data: logs as Record<string, unknown>[],
@@ -165,7 +173,17 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
       isAdmin
     ),
     pagination,
-    enableRowSelection: false,
+    enableRowSelection:
+      isCommon && !isAdmin
+        ? (row) => {
+            const archive = (row.original as unknown as UsageLog).raw_exchange
+            return Boolean(
+              archive &&
+              archive.status !== 'deleted' &&
+              archive.status !== 'delete_pending'
+            )
+          }
+        : false,
     onPaginationChange,
     onColumnFiltersChange,
     manualPagination: true,
@@ -173,8 +191,6 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
     totalCount: data?.total || 0,
     ensurePageInRange,
   })
-
-  const isCommon = logCategory === 'common'
 
   return (
     <DataTablePage
@@ -197,6 +213,9 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
           isLoading={isLoadingData}
           logCategory={logCategory}
         />
+      }
+      bulkActions={
+        isCommon && !isAdmin ? <RawExchangeBulkActions table={table} /> : null
       }
       toolbar={
         isCommon ? (

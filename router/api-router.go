@@ -269,6 +269,23 @@ func SetApiRouter(router *gin.Engine) {
 			redemptionRoute.DELETE("/invalid", controller.DeleteInvalidRedemption)
 			redemptionRoute.DELETE("/:id", controller.DeleteRedemption)
 		}
+		rawExchangeAdminRoute := apiRouter.Group("/raw-exchanges/admin")
+		rawExchangeAdminRoute.Use(middleware.CORS(), middleware.CriticalRateLimit(), middleware.DisableCache())
+		{
+			rawExchangeAdminRoute.GET("/stats", middleware.AdminAuth(), controller.GetRawExchangeAdminStats)
+			rawExchangeAdminRoute.POST("/cleanup-preview", middleware.RootAuth(), controller.PreviewRawExchangeCleanup)
+		}
+
+		rawExchangeRoute := apiRouter.Group("/raw-exchanges/self")
+		rawExchangeRoute.Use(middleware.CORS(), middleware.CriticalRateLimit(), middleware.UserAuth(), middleware.DisableCache())
+		{
+			rawExchangeRoute.GET("/:request_id/request", controller.DownloadRawExchangeRequest)
+			rawExchangeRoute.GET("/:request_id/response", controller.DownloadRawExchangeResponse)
+			rawExchangeRoute.GET("/:request_id/bundle", controller.DownloadRawExchangeBundle)
+			rawExchangeRoute.DELETE("/:request_id", controller.DeleteRawExchange)
+			rawExchangeRoute.POST("/batch-delete", controller.DeleteRawExchangeBatch)
+		}
+
 		logRoute := apiRouter.Group("/log")
 		logRoute.GET("/", middleware.AdminAuth(), controller.GetAllLogs)
 		logRoute.GET("/stat", middleware.AdminAuth(), controller.GetLogsStat)
@@ -282,6 +299,7 @@ func SetApiRouter(router *gin.Engine) {
 		systemTaskRoute.Use(middleware.RootAuth())
 		{
 			systemTaskRoute.POST("/log-cleanup", controller.CreateLogCleanupSystemTask)
+			systemTaskRoute.POST("/raw-exchange-cleanup", controller.CreateRawExchangeCleanupSystemTask)
 			systemTaskRoute.GET("/list", controller.ListSystemTasks)
 			systemTaskRoute.GET("/current", controller.GetCurrentSystemTask)
 			systemTaskRoute.GET("/:task_id", controller.GetSystemTask)

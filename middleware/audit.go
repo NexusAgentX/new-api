@@ -92,8 +92,10 @@ var auditRouteActions = map[string]string{
 	"PUT /api/subscription/admin/plans/:id": "subscription.plan_update",
 	"POST /api/subscription/admin/bind":     "subscription.bind",
 
-	// 日志
-	"POST /api/system-task/log-cleanup": "log.cleanup_start",
+	// 日志与原始交换归档
+	"POST /api/system-task/log-cleanup":             "log.cleanup_start",
+	"POST /api/raw-exchanges/admin/cleanup-preview": "raw_exchange.cleanup_preview",
+	"POST /api/system-task/raw-exchange-cleanup":    "raw_exchange.cleanup_start",
 }
 
 // beginAdminAudit 在管理/root 写操作进入 handler 前包装 ResponseWriter，

@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/console_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -75,24 +76,25 @@ func GetStatus(c *gin.Context) {
 		"docs_link":                   operation_setting.GetGeneralSetting().DocsLink,
 		"quota_per_unit":              common.QuotaPerUnit,
 		// Keep display_in_currency for older API clients alongside quota_display_type.
-		"display_in_currency":           operation_setting.IsCurrencyDisplay(),
-		"quota_display_type":            operation_setting.GetQuotaDisplayType(),
-		"custom_currency_symbol":        operation_setting.GetGeneralSetting().CustomCurrencySymbol,
-		"custom_currency_exchange_rate": operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate,
-		"enable_batch_update":           common.BatchUpdateEnabled,
-		"enable_drawing":                common.DrawingEnabled,
-		"enable_task":                   common.TaskEnabled,
-		"enable_data_export":            common.DataExportEnabled,
-		"data_export_default_time":      common.DataExportDefaultTime,
-		"default_collapse_sidebar":      common.DefaultCollapseSidebar,
-		"mj_notify_enabled":             setting.MjNotifyEnabled,
-		"chats":                         setting.Chats,
-		"demo_site_enabled":             operation_setting.DemoSiteEnabled,
-		"self_use_mode_enabled":         operation_setting.SelfUseModeEnabled,
-		"register_enabled":              common.RegisterEnabled,
-		"password_login_enabled":        common.PasswordLoginEnabled,
-		"password_register_enabled":     common.PasswordRegisterEnabled,
-		"default_use_auto_group":        setting.DefaultUseAutoGroup,
+		"display_in_currency":            operation_setting.IsCurrencyDisplay(),
+		"quota_display_type":             operation_setting.GetQuotaDisplayType(),
+		"custom_currency_symbol":         operation_setting.GetGeneralSetting().CustomCurrencySymbol,
+		"custom_currency_exchange_rate":  operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate,
+		"enable_batch_update":            common.BatchUpdateEnabled,
+		"enable_drawing":                 common.DrawingEnabled,
+		"enable_task":                    common.TaskEnabled,
+		"enable_data_export":             common.DataExportEnabled,
+		"data_export_default_time":       common.DataExportDefaultTime,
+		"default_collapse_sidebar":       common.DefaultCollapseSidebar,
+		"mj_notify_enabled":              setting.MjNotifyEnabled,
+		"chats":                          setting.Chats,
+		"demo_site_enabled":              operation_setting.DemoSiteEnabled,
+		"self_use_mode_enabled":          operation_setting.SelfUseModeEnabled,
+		"register_enabled":               common.RegisterEnabled,
+		"password_login_enabled":         common.PasswordLoginEnabled,
+		"password_register_enabled":      common.PasswordRegisterEnabled,
+		"default_use_auto_group":         setting.DefaultUseAutoGroup,
+		"raw_exchange_capture_available": service.RawExchangeCaptureReady() == nil,
 
 		"usd_exchange_rate": operation_setting.USDExchangeRate,
 		"price":             operation_setting.Price,

@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { TFunction } from 'i18next'
 import {
+  Archive,
   Copy,
   Check,
   Route,
@@ -45,6 +46,7 @@ import { formatBillingCurrencyFromUSD } from '@/lib/currency'
 import {
   formatLogQuota,
   formatPreciseLogQuota,
+  formatTimestampToDate,
   formatTokens,
   formatUseTime,
 } from '@/lib/format'
@@ -65,11 +67,17 @@ import {
   renderAuditContent,
 } from '../../lib/format'
 import {
+  formatRawExchangeBytes,
+  rawExchangeCaptureModeLabel,
+  rawExchangeOutcomeLabel,
+} from '../../lib/raw-exchange-format'
+import {
   getLogTypeConfig,
   isPerCallBilling,
   isTimingLogType,
 } from '../../lib/utils'
 import { USAGE_BILLING_PATH, type LogOtherData } from '../../types'
+import { RawExchangeActions } from '../raw-exchange-actions'
 
 // Maps a channel-update changed-field token (as recorded by the backend audit)
 // to its i18n label key for display in the audit details.
@@ -748,6 +756,81 @@ export function DetailsDialog(props: DetailsDialogProps) {
             />
           )}
         </div>
+
+        {props.log.raw_exchange && (
+          <DetailSection
+            icon={<Archive className='size-3.5' aria-hidden='true' />}
+            label={t('Raw exchange archive')}
+          >
+            <RawExchangeActions
+              archive={props.log.raw_exchange}
+              isAdmin={props.isAdmin}
+              showMetadata={false}
+            />
+            <DetailRow
+              label={t('Capture mode')}
+              value={rawExchangeCaptureModeLabel(
+                props.log.raw_exchange.capture_mode,
+                t
+              )}
+            />
+            <DetailRow
+              label={t('Outcome')}
+              value={rawExchangeOutcomeLabel(props.log.raw_exchange.outcome, t)}
+            />
+            {props.log.raw_exchange.outcome_reason && (
+              <DetailRow
+                label={t('Reason')}
+                value={props.log.raw_exchange.outcome_reason}
+                mono
+              />
+            )}
+            {props.log.raw_exchange.error_code && (
+              <DetailRow
+                label={t('Error')}
+                value={props.log.raw_exchange.error_code}
+                mono
+              />
+            )}
+            <DetailRow
+              label={t('Request bytes')}
+              value={`${formatRawExchangeBytes(
+                props.log.raw_exchange.request_bytes
+              )} · ${t('Stored: {{size}}', {
+                size: formatRawExchangeBytes(
+                  props.log.raw_exchange.request_stored_bytes
+                ),
+              })}`}
+              mono
+            />
+            <DetailRow
+              label={t('Response bytes')}
+              value={`${formatRawExchangeBytes(
+                props.log.raw_exchange.response_bytes
+              )} · ${t('Stored: {{size}}', {
+                size: formatRawExchangeBytes(
+                  props.log.raw_exchange.response_stored_bytes
+                ),
+              })}`}
+              mono
+            />
+            {props.log.raw_exchange.expires_at > 0 && (
+              <DetailRow
+                label={t('Expires at')}
+                value={formatTimestampToDate(props.log.raw_exchange.expires_at)}
+                mono
+              />
+            )}
+            {props.log.raw_exchange.response_available &&
+              !props.log.raw_exchange.response_complete && (
+                <DetailRow
+                  label={t('Response')}
+                  value={t('Incomplete')}
+                  muted
+                />
+              )}
+          </DetailSection>
+        )}
 
         {/* Request conversion (admin only, not for refund) */}
         {showConversion && (

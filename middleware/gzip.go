@@ -4,6 +4,7 @@ import (
 	"compress/gzip"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/andybalholm/brotli"
@@ -35,11 +36,15 @@ func DecompressRequestMiddleware() gin.HandlerFunc {
 		maxBytes := int64(maxMB) << 20
 
 		origBody := c.Request.Body
+		contentEncoding := strings.ToLower(strings.TrimSpace(c.GetHeader("Content-Encoding")))
+		if contentEncoding != "" {
+			c.Set(string(constant.ContextKeyOriginalContentEncoding), contentEncoding)
+		}
 		wrapMaxBytes := func(body io.ReadCloser) io.ReadCloser {
 			return http.MaxBytesReader(c.Writer, body, maxBytes)
 		}
 
-		switch c.GetHeader("Content-Encoding") {
+		switch contentEncoding {
 		case "gzip":
 			gzipReader, err := gzip.NewReader(origBody)
 			if err != nil {

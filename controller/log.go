@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/gin-gonic/gin"
@@ -27,6 +28,9 @@ func GetAllLogs(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if err := model.AttachRawExchangeSummaries(logs, nil); err != nil {
+		logger.LogWarn(c, "raw exchange log summary lookup failed: "+err.Error())
+	}
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(logs)
 	common.ApiSuccess(c, pageInfo)
@@ -48,6 +52,9 @@ func GetUserLogs(c *gin.Context) {
 	if err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	if err := model.AttachRawExchangeSummaries(logs, &userId); err != nil {
+		logger.LogWarn(c, "raw exchange user log summary lookup failed: "+err.Error())
 	}
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(logs)
@@ -87,6 +94,10 @@ func GetLogByKey(c *gin.Context) {
 			"message": err.Error(),
 		})
 		return
+	}
+	userId := c.GetInt("id")
+	if err := model.AttachRawExchangeSummaries(logs, &userId); err != nil {
+		logger.LogWarn(c, "raw exchange key log summary lookup failed: "+err.Error())
 	}
 	c.JSON(200, gin.H{
 		"success": true,

@@ -299,10 +299,22 @@ func migrateDB() error {
 		&SystemInstance{},
 		&SystemTask{},
 		&SystemTaskLock{},
+		&RawExchangeArchive{},
+		&RawExchangeStorageUsage{},
+		&RawExchangeDownloadLease{},
 		&CasbinRule{},
 		&AuthzRole{},
 	)
 	if err != nil {
+		return err
+	}
+	if err := BackfillRawExchangeCaptureModes(); err != nil {
+		return err
+	}
+	if err := InitializeRawExchangeStorageUsage(); err != nil {
+		return err
+	}
+	if _, err := ReconcileRawExchangeStorageUsage(); err != nil {
 		return err
 	}
 	if err := InitializeUserAuthVersions(); err != nil {
@@ -368,6 +380,9 @@ func migrateDBFast() error {
 		{&SystemInstance{}, "SystemInstance"},
 		{&SystemTask{}, "SystemTask"},
 		{&SystemTaskLock{}, "SystemTaskLock"},
+		{&RawExchangeArchive{}, "RawExchangeArchive"},
+		{&RawExchangeStorageUsage{}, "RawExchangeStorageUsage"},
+		{&RawExchangeDownloadLease{}, "RawExchangeDownloadLease"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大
 	errChan := make(chan error, len(migrations))
@@ -391,6 +406,15 @@ func migrateDBFast() error {
 		if err != nil {
 			return err
 		}
+	}
+	if err := BackfillRawExchangeCaptureModes(); err != nil {
+		return err
+	}
+	if err := InitializeRawExchangeStorageUsage(); err != nil {
+		return err
+	}
+	if _, err := ReconcileRawExchangeStorageUsage(); err != nil {
+		return err
 	}
 	if err := InitializeUserAuthVersions(); err != nil {
 		return err

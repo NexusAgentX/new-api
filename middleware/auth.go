@@ -512,6 +512,7 @@ func SetupContextForToken(c *gin.Context, token *model.Token, parts ...string) e
 	}
 	common.SetContextKey(c, constant.ContextKeyTokenGroup, token.Group)
 	common.SetContextKey(c, constant.ContextKeyTokenCrossGroupRetry, token.CrossGroupRetry)
+	common.SetContextKey(c, constant.ContextKeyTokenRawExchangeCaptureMode, model.EffectiveRawExchangeCaptureMode(token.RawExchangeCaptureMode))
 	if autoGroupPolicy != nil {
 		common.SetContextKey(c, constant.ContextKeyTokenAutoGroupPolicy, autoGroupPolicy)
 	}

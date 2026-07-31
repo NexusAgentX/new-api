@@ -24,6 +24,7 @@ import { useTranslation } from 'react-i18next'
 import { GroupBadge } from '@/components/group-badge'
 import { StatusBadge, type StatusBadgeProps } from '@/components/status-badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Popover,
   PopoverContent,
@@ -60,6 +61,7 @@ import type { LogOtherData } from '../../types'
 import { DetailsDialog } from '../dialogs/details-dialog'
 import { LogCostDisplay } from '../log-cost-display'
 import { ModelBadge } from '../model-badge'
+import { RawExchangeActions } from '../raw-exchange-actions'
 import { RequestDegradationBadge } from '../request-degradation-badge'
 import { TimingMetricsCell, StreamTpsCell } from '../timing-metrics-cell'
 import { useUsageLogsContext } from '../usage-logs-provider'
@@ -286,39 +288,76 @@ function buildTypeDetailSegments(
 
 export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
   const { t } = useTranslation()
-  const columns: ColumnDef<UsageLog>[] = [
-    {
-      accessorKey: 'created_at',
-      header: t('Time'),
-      cell: ({ row }) => {
-        const log = row.original
-        const timestamp = row.getValue('created_at') as number
-        const config = getLogTypeConfig(log.type)
+  const columns: ColumnDef<UsageLog>[] = []
 
+  if (!isAdmin) {
+    columns.push({
+      id: 'select',
+      header: ({ table }) => {
+        const hasSelectableRows = table
+          .getRowModel()
+          .rows.some((row) => row.getCanSelect())
         return (
-          <div className='flex min-w-0 flex-col gap-0.5'>
-            <span className='truncate font-mono text-xs tabular-nums'>
-              {formatTimestampToDate(timestamp)}
-            </span>
-            <StatusBadge
-              label={t(config.label)}
-              variant={config.color as StatusBadgeProps['variant']}
-              size='sm'
-              copyable={false}
-              className='-ml-1.5 !text-xs [&_span]:!text-xs'
-            />
-          </div>
+          <Checkbox
+            checked={table.getIsAllPageRowsSelected()}
+            indeterminate={table.getIsSomePageRowsSelected()}
+            disabled={!hasSelectableRows}
+            onCheckedChange={(value) =>
+              table.toggleAllPageRowsSelected(!!value)
+            }
+            aria-label={t('Select all')}
+            className='translate-y-[2px]'
+          />
         )
       },
-      filterFn: (row, _id, value) => {
-        if (!Array.isArray(value) || value.length === 0) return true
-        if (value.includes(LOG_TYPE_ALL_VALUE)) return true
-        return value.includes(String(row.original.type))
+      cell: ({ row }) => {
+        if (!row.getCanSelect()) return null
+        return (
+          <Checkbox
+            checked={row.getIsSelected()}
+            onCheckedChange={(value) => row.toggleSelected(!!value)}
+            aria-label={t('Select row')}
+            className='translate-y-[2px]'
+          />
+        )
       },
+      enableSorting: false,
       enableHiding: false,
-      size: 180,
+      size: 40,
+    })
+  }
+
+  columns.push({
+    accessorKey: 'created_at',
+    header: t('Time'),
+    cell: ({ row }) => {
+      const log = row.original
+      const timestamp = row.getValue('created_at') as number
+      const config = getLogTypeConfig(log.type)
+
+      return (
+        <div className='flex min-w-0 flex-col gap-0.5'>
+          <span className='truncate font-mono text-xs tabular-nums'>
+            {formatTimestampToDate(timestamp)}
+          </span>
+          <StatusBadge
+            label={t(config.label)}
+            variant={config.color as StatusBadgeProps['variant']}
+            size='sm'
+            copyable={false}
+            className='-ml-1.5 !text-xs [&_span]:!text-xs'
+          />
+        </div>
+      )
     },
-  ]
+    filterFn: (row, _id, value) => {
+      if (!Array.isArray(value) || value.length === 0) return true
+      if (value.includes(LOG_TYPE_ALL_VALUE)) return true
+      return value.includes(String(row.original.type))
+    },
+    enableHiding: false,
+    size: 180,
+  })
 
   if (isAdmin) {
     columns.push(
@@ -790,6 +829,21 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
       },
       size: 180,
       maxSize: 200,
+    },
+    {
+      id: 'raw_exchange',
+      accessorFn: (row) => row.raw_exchange?.status ?? '',
+      header: t('Archive'),
+      cell: ({ row }) => {
+        const archive = row.original.raw_exchange
+        if (!archive) return null
+        return (
+          <RawExchangeActions archive={archive} isAdmin={isAdmin} compact />
+        )
+      },
+      enableSorting: false,
+      size: 170,
+      maxSize: 220,
     }
   )
 

@@ -472,6 +472,12 @@ const AUDIT_TEMPLATES: Record<string, string> = {
   // Logs
   'log.clear': 'Cleared historical logs',
   'log.cleanup_start': 'Log cleanup task started.',
+  'raw_exchange.cleanup_preview':
+    'Previewed cleanup for {{count}} raw exchange archives',
+  'raw_exchange.cleanup_start':
+    'Started raw exchange cleanup task {{task_id}} for {{count}} archives',
+  'raw_exchange.cleanup_complete':
+    'Completed raw exchange cleanup task {{task_id}} with status {{status}}: {{deleted}} deleted, {{failed}} failed',
   // Generic middleware fallback
   generic: '{{method}} {{route}}',
 }

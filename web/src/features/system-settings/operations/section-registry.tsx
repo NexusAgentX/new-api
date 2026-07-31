@@ -22,6 +22,7 @@ import { MonitoringSettingsSection } from '../integrations/monitoring-settings-s
 import { WorkerSettingsSection } from '../integrations/worker-settings-section'
 import { LogSettingsSection } from '../maintenance/log-settings-section'
 import { PerformanceSection } from '../maintenance/performance-section'
+import { RawExchangeSection } from '../maintenance/raw-exchange-section'
 import { UpdateCheckerSection } from '../maintenance/update-checker-section'
 import type { OperationsSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
@@ -100,6 +101,11 @@ const OPERATIONS_SECTIONS = [
         defaultEnabled={Boolean(settings.LogConsumeEnabled)}
       />
     ),
+  },
+  {
+    id: 'raw-exchanges',
+    titleKey: 'Raw Exchange Storage',
+    build: () => <RawExchangeSection />,
   },
   {
     id: 'performance',

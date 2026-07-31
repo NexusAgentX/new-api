@@ -18,7 +18,15 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronDown, KeyRound, Settings2, WalletCards } from 'lucide-react'
+import {
+  Archive,
+  ChevronDown,
+  CircleOff,
+  KeyRound,
+  Settings2,
+  ShieldAlert,
+  WalletCards,
+} from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useForm, type SubmitErrorHandler } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -35,6 +43,7 @@ import {
   sideDrawerSwitchItemClassName,
 } from '@/components/drawer-layout'
 import { MultiSelect } from '@/components/multi-select'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
   Collapsible,
@@ -62,6 +71,7 @@ import {
 } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { ModelMappingEditor } from '@/features/channels/components/model-mapping-editor'
 import { useStatus } from '@/hooks/use-status'
 import { getUserModels, getUserGroups } from '@/lib/api'
@@ -103,6 +113,7 @@ export function ApiKeysMutateDrawer({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const defaultUseAutoGroup = status?.default_use_auto_group === true
+  const rawCaptureAvailable = status?.raw_exchange_capture_available === true
 
   // Fetch models
   const { data: modelsData } = useQuery({
@@ -601,6 +612,105 @@ export function ApiKeysMutateDrawer({
                               'Map client model names to gateway models for this API key'
                             )}
                           </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='raw_exchange_capture_mode'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className='flex items-center gap-2'>
+                            <Archive className='size-4' aria-hidden='true' />
+                            {t('Raw exchange capture')}
+                          </FormLabel>
+                          <FormDescription>
+                            {t(
+                              'Store the request and final response for this API key for troubleshooting.'
+                            )}
+                          </FormDescription>
+                          <FormControl>
+                            <ToggleGroup
+                              value={[field.value]}
+                              onValueChange={(value) => {
+                                const nextValue = value.find(
+                                  (item) => item !== field.value
+                                )
+                                if (nextValue) field.onChange(nextValue)
+                              }}
+                              aria-label={t('Raw exchange capture')}
+                              variant='outline'
+                              size='sm'
+                              spacing={1}
+                              className='grid w-full grid-cols-3'
+                            >
+                              <ToggleGroupItem
+                                value='off'
+                                className='h-auto min-h-12 w-full flex-col gap-1 px-2 py-2'
+                              >
+                                <CircleOff
+                                  className='size-4'
+                                  aria-hidden='true'
+                                />
+                                <span className='text-xs font-medium'>
+                                  {t('Off')}
+                                </span>
+                              </ToggleGroupItem>
+                              <ToggleGroupItem
+                                value='non_success'
+                                disabled={!rawCaptureAvailable}
+                                className='h-auto min-h-12 w-full flex-col gap-1 px-2 py-2'
+                              >
+                                <ShieldAlert
+                                  className='size-4'
+                                  aria-hidden='true'
+                                />
+                                <span className='text-xs font-medium'>
+                                  {t('Non-success')}
+                                </span>
+                              </ToggleGroupItem>
+                              <ToggleGroupItem
+                                value='all'
+                                disabled={!rawCaptureAvailable}
+                                className='h-auto min-h-12 w-full flex-col gap-1 px-2 py-2'
+                              >
+                                <Archive
+                                  className='size-4'
+                                  aria-hidden='true'
+                                />
+                                <span className='text-xs font-medium'>
+                                  {t('All requests')}
+                                </span>
+                              </ToggleGroupItem>
+                            </ToggleGroup>
+                          </FormControl>
+                          {!rawCaptureAvailable ? (
+                            <Alert className='border-amber-500/40 bg-amber-500/5 py-2'>
+                              <ShieldAlert
+                                className='text-amber-600 dark:text-amber-400'
+                                aria-hidden='true'
+                              />
+                              <AlertDescription>
+                                {t(
+                                  'Raw exchange storage is not available. Only Off can be selected.'
+                                )}
+                              </AlertDescription>
+                            </Alert>
+                          ) : (
+                            <Alert className='border-amber-500/40 bg-amber-500/5 py-2'>
+                              <ShieldAlert
+                                className='text-amber-600 dark:text-amber-400'
+                                aria-hidden='true'
+                              />
+                              <AlertDescription>
+                                {t(
+                                  'Captured data may contain sensitive content. Keep this key scope narrow and remove archives when no longer needed.'
+                                )}
+                              </AlertDescription>
+                            </Alert>
+                          )}
                           <FormMessage />
                         </FormItem>
                       )}
