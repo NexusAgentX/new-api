@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	channelmetrics "github.com/QuantumNous/new-api/pkg/channel_metrics"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/gin-gonic/gin"
 )
@@ -112,7 +113,7 @@ func SelectChannelWithAdmission(param *RetryParam) (*ChannelSelection, error) {
 		if err != nil {
 			return nil, err
 		}
-		selection, err := selectAdmittedChannel(param.Ctx, param.TokenGroup, tiers, param.GetRetry())
+		selection, err := selectAdmittedChannel(param.Ctx, param.TokenGroup, param.ModelName, param.RequestPath, tiers, param.GetRetry())
 		if err != nil {
 			return nil, err
 		}
@@ -171,7 +172,7 @@ func SelectChannelWithAdmission(param *RetryParam) (*ChannelSelection, error) {
 			continue
 		}
 
-		selection, err := selectAdmittedChannel(param.Ctx, selectGroup, tiers, priorityRetry)
+		selection, err := selectAdmittedChannel(param.Ctx, selectGroup, param.ModelName, param.RequestPath, tiers, priorityRetry)
 		if err != nil {
 			var groupCapacityErr *ChannelCapacityError
 			if !errors.As(err, &groupCapacityErr) {
@@ -211,7 +212,7 @@ func SelectChannelWithAdmission(param *RetryParam) (*ChannelSelection, error) {
 	return nil, nil
 }
 
-func selectAdmittedChannel(ctx context.Context, group string, tiers []model.ChannelCandidateTier, startTier int) (*ChannelSelection, error) {
+func selectAdmittedChannel(ctx context.Context, group string, modelName string, endpoint string, tiers []model.ChannelCandidateTier, startTier int) (*ChannelSelection, error) {
 	if len(tiers) == 0 {
 		return nil, nil
 	}
@@ -220,6 +221,23 @@ func selectAdmittedChannel(ctx context.Context, group string, tiers []model.Chan
 	}
 	if startTier >= len(tiers) {
 		startTier = len(tiers) - 1
+	}
+
+	// A retry advances to a lower-priority tier. Candidates in the skipped
+	// tiers are temporarily avoided for this request, so record that local
+	// retry cooldown without changing the established routing decision.
+	for tierIndex := 0; tierIndex < startTier; tierIndex++ {
+		for _, candidate := range tiers[tierIndex].Candidates {
+			if candidate.Channel == nil {
+				continue
+			}
+			channelmetrics.RecordLocalSkip(channelmetrics.AttemptMeta{
+				ChannelId: candidate.Channel.Id,
+				Group:     group,
+				ModelName: modelName,
+				Endpoint:  endpoint,
+			}, channelmetrics.SkipReasonCooldown)
+		}
 	}
 
 	capacityErr := &ChannelCapacityError{}
@@ -242,6 +260,16 @@ func selectAdmittedChannel(ctx context.Context, group string, tiers []model.Chan
 			if decision.Allowed {
 				return &ChannelSelection{Channel: candidate.Channel, Group: group, Lease: lease}, nil
 			}
+			skipReason := channelmetrics.SkipReasonRPM
+			if decision.Reason == ChannelAdmissionReasonConcurrency {
+				skipReason = channelmetrics.SkipReasonConcurrency
+			}
+			channelmetrics.RecordLocalSkip(channelmetrics.AttemptMeta{
+				ChannelId: candidate.Channel.Id,
+				Group:     group,
+				ModelName: modelName,
+				Endpoint:  endpoint,
+			}, skipReason)
 			capacityErr.addDecision(decision)
 		}
 	}

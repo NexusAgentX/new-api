@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/go-redis/redis/v8"
@@ -250,7 +251,7 @@ func reachedFirstResponseTimeoutDisableThreshold(counts firstResponseTimeoutCoun
 	return rate >= setting.DisableRate
 }
 
-func RecordFirstResponseAttempt(channelError types.ChannelError, timedOut bool) {
+func RecordFirstResponseAttempt(channelError types.ChannelError, timedOut bool, requestId string) {
 	setting := operation_setting.GetFirstResponseTimeoutSetting()
 	if channelError.ChannelId <= 0 ||
 		operation_setting.ValidateFirstResponseDisableWindowMinutes(setting.DisableWindowMinutes) != nil ||
@@ -277,5 +278,10 @@ func RecordFirstResponseAttempt(channelError types.ChannelError, timedOut bool) 
 		setting.DisableWindowMinutes,
 		setting.DisableRate,
 	)
-	DisableChannel(channelError, reason)
+	DisableChannelWithEvent(channelError, model.ChannelStatusChange{
+		Source:       "first_response_policy",
+		ReasonCode:   "first_response_timeout_rate",
+		ReasonDetail: reason,
+		RequestId:    requestId,
+	})
 }

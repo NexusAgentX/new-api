@@ -2,6 +2,7 @@ package router
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"testing"
 
@@ -25,6 +26,25 @@ func TestChannelDeleteRoutesUseSensitiveWritePermission(t *testing.T) {
 	assertChannelRoutePermission(t, http.MethodPut, "/", authz.ChannelWrite, controller.UpdateChannel)
 	assertChannelRoutePermission(t, http.MethodPut, "/tag", authz.ChannelWrite, controller.EditTagChannels)
 	assertChannelRoutePermission(t, http.MethodPost, "/batch/tag", authz.ChannelWrite, controller.BatchSetChannelTag)
+}
+
+func TestChannelMetricRoutesUseReadPermission(t *testing.T) {
+	assertChannelRoutePermission(t, http.MethodGet, "/metrics/overview", authz.ChannelRead, controller.GetChannelMetricsOverview)
+	assertChannelRoutePermission(t, http.MethodGet, "/metrics/dimensions", authz.ChannelRead, controller.GetChannelMetricDimensions)
+	assertChannelRoutePermission(t, http.MethodGet, "/metrics/runtime", authz.ChannelRead, controller.GetChannelMetricsRuntime)
+	assertChannelRoutePermission(t, http.MethodGet, "/metrics/:id", authz.ChannelRead, controller.GetChannelMetricsDetail)
+}
+
+func TestChannelMetricRoutesRejectUnauthenticatedRequests(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	api := engine.Group("/api")
+	registerChannelRoutes(api)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/channel/metrics/overview", nil)
+	engine.ServeHTTP(recorder, request)
+	assert.Equal(t, http.StatusUnauthorized, recorder.Code)
 }
 
 func TestChannelStatusRoutesRegisterWithoutConflict(t *testing.T) {

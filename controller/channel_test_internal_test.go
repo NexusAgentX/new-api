@@ -710,6 +710,10 @@ func TestPerformChannelTestsRecoversAfterNormalMonitoredResponsesStream(t *testi
 	var stored model.Channel
 	require.NoError(t, db.First(&stored, channel.Id).Error)
 	assert.Equal(t, common.ChannelStatusEnabled, stored.Status)
+	var statusEvent model.ChannelStatusEvent
+	require.NoError(t, db.Where("channel_id = ?", channel.Id).First(&statusEvent).Error)
+	assert.Equal(t, "passive_recovery_test", statusEvent.Source)
+	assert.Equal(t, "passive_recovery_succeeded", statusEvent.ReasonCode)
 
 	staleSummary := performChannelTests(t.Context(), []*model.Channel{channel}, root.Id, false, nil)
 	assert.Equal(t, 1, staleSummary.Tested)

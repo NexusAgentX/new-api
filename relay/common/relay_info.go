@@ -207,6 +207,9 @@ type RelayInfo struct {
 	firstResponseTimeoutSeconds  int
 	firstResponseProtocolFailure bool
 
+	channelMetricAttemptMu sync.Mutex
+	channelMetricAttempt   ChannelMetricAttempt
+
 	ThinkingContentInfo
 	TokenCountMeta
 	*ClaudeConvertInfo
@@ -214,6 +217,11 @@ type RelayInfo struct {
 	*ResponsesUsageInfo
 	*ChannelMeta
 	*TaskRelayInfo
+}
+
+type ChannelMetricAttempt interface {
+	MarkFirstResponse(time.Time)
+	SetOutputTokens(int64)
 }
 
 type FirstResponseAttempt struct {
@@ -733,9 +741,37 @@ func (info *RelayInfo) GetEstimatePromptTokens() int {
 
 func (info *RelayInfo) SetFirstResponseTime() {
 	info.MarkFirstResponseReceived()
+	now := time.Now()
+	info.channelMetricAttemptMu.Lock()
+	attempt := info.channelMetricAttempt
+	info.channelMetricAttemptMu.Unlock()
+	if attempt != nil {
+		attempt.MarkFirstResponse(now)
+	}
 	if info.isFirstResponse {
-		info.FirstResponseTime = time.Now()
+		info.FirstResponseTime = now
 		info.isFirstResponse = false
+	}
+}
+
+func (info *RelayInfo) SetChannelMetricAttempt(attempt ChannelMetricAttempt) {
+	if info == nil {
+		return
+	}
+	info.channelMetricAttemptMu.Lock()
+	info.channelMetricAttempt = attempt
+	info.channelMetricAttemptMu.Unlock()
+}
+
+func (info *RelayInfo) SetChannelMetricOutputTokens(tokens int64) {
+	if info == nil {
+		return
+	}
+	info.channelMetricAttemptMu.Lock()
+	attempt := info.channelMetricAttempt
+	info.channelMetricAttemptMu.Unlock()
+	if attempt != nil {
+		attempt.SetOutputTokens(tokens)
 	}
 }
 

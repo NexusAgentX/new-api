@@ -63,7 +63,9 @@ func TestGetChannelRefreshesTieredBillingAfterCrossGroupRetry(t *testing.T) {
 	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
 	common.MemoryCacheEnabled = false
 	common.RedisEnabled = false
-	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}))
+	require.NoError(t, db.AutoMigrate(
+		&model.Channel{}, &model.Ability{}, &model.ChannelMetric{}, &model.ChannelStatusEvent{},
+	))
 	require.NoError(t, setting.UpdateAutoGroupsByJsonString(`["cheap","premium"]`))
 	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"cheap":"","premium":""}`))
 	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"cheap":0.1,"premium":0.2}`))

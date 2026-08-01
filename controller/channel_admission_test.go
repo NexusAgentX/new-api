@@ -61,7 +61,7 @@ func TestGetInitialLimitedChannelReturnsCapacityError(t *testing.T) {
 	dsn := fmt.Sprintf("file:controller-limited-channel-%d?mode=memory&cache=shared", time.Now().UnixNano())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.Channel{}))
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.ChannelMetric{}, &model.ChannelStatusEvent{}))
 
 	previousDB := model.DB
 	previousMemoryCache := common.MemoryCacheEnabled

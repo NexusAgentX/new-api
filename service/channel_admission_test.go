@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	channelmetrics "github.com/QuantumNous/new-api/pkg/channel_metrics"
 	"github.com/QuantumNous/new-api/setting"
 
 	"github.com/alicebob/miniredis/v2"
@@ -443,7 +444,7 @@ func TestSelectAdmittedChannelTriesSameTierThenLowerPriority(t *testing.T) {
 		{Priority: 10, Candidates: []model.ChannelCandidate{{Channel: highA, Weight: 1}, {Channel: highB, Weight: 1}}},
 		{Priority: 0, Candidates: []model.ChannelCandidate{{Channel: low, Weight: 1}}},
 	}
-	selection, err := selectAdmittedChannel(context.Background(), "default", tiers, 0)
+	selection, err := selectAdmittedChannel(context.Background(), "default", "gpt-test", "/v1/chat/completions", tiers, 0)
 	require.NoError(t, err)
 	require.NotNil(t, selection)
 	assert.Equal(t, highB.Id, selection.Channel.Id)
@@ -452,7 +453,7 @@ func TestSelectAdmittedChannelTriesSameTierThenLowerPriority(t *testing.T) {
 	highBLease, decision, err := manager.acquire(context.Background(), highB.Id, 1, 0)
 	require.NoError(t, err)
 	require.True(t, decision.Allowed)
-	selection, err = selectAdmittedChannel(context.Background(), "default", tiers, 0)
+	selection, err = selectAdmittedChannel(context.Background(), "default", "gpt-test", "/v1/chat/completions", tiers, 0)
 	require.NoError(t, err)
 	require.NotNil(t, selection)
 	assert.Equal(t, low.Id, selection.Channel.Id)
@@ -460,6 +461,48 @@ func TestSelectAdmittedChannelTriesSameTierThenLowerPriority(t *testing.T) {
 
 	require.NoError(t, highALease.Release())
 	require.NoError(t, highBLease.Release())
+}
+
+func TestSelectAdmittedChannelRecordsRetryCooldownSkips(t *testing.T) {
+	require.NoError(t, channelmetrics.Flush(context.Background()))
+	dsn := fmt.Sprintf("file:channel-cooldown-metrics-%d?mode=memory&cache=shared", time.Now().UnixNano())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.ChannelMetric{}))
+
+	previousDB := model.DB
+	previousManager := defaultChannelAdmissionManager
+	model.DB = db
+	defaultChannelAdmissionManager = newMemoryChannelAdmissionManager(time.Now)
+	t.Cleanup(func() {
+		require.NoError(t, channelmetrics.Flush(context.Background()))
+		model.DB = previousDB
+		defaultChannelAdmissionManager = previousManager
+	})
+
+	highA := &model.Channel{Id: 306}
+	highB := &model.Channel{Id: 307}
+	low := &model.Channel{Id: 308}
+	tiers := []model.ChannelCandidateTier{
+		{Priority: 10, Candidates: []model.ChannelCandidate{{Channel: highA, Weight: 1}, {Channel: highB, Weight: 1}}},
+		{Priority: 0, Candidates: []model.ChannelCandidate{{Channel: low, Weight: 1}}},
+	}
+
+	selection, err := selectAdmittedChannel(context.Background(), "default", "gpt-test", "/v1/chat/completions", tiers, 1)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	assert.Equal(t, low.Id, selection.Channel.Id)
+	require.NoError(t, selection.Lease.Release())
+	require.NoError(t, channelmetrics.Flush(context.Background()))
+
+	var metrics []model.ChannelMetric
+	require.NoError(t, db.Where("channel_id IN ?", []int{highA.Id, highB.Id}).Order("channel_id").Find(&metrics).Error)
+	require.Len(t, metrics, 2)
+	for index, channelId := range []int{highA.Id, highB.Id} {
+		assert.Equal(t, channelId, metrics[index].ChannelId)
+		assert.Zero(t, metrics[index].AttemptCount)
+		assert.Equal(t, int64(1), metrics[index].CooldownSkipCount)
+	}
 }
 
 func TestSelectAdmittedChannelReturnsCapacityErrorWhenAllCandidatesAreFull(t *testing.T) {
@@ -484,7 +527,7 @@ func TestSelectAdmittedChannelReturnsCapacityErrorWhenAllCandidatesAreFull(t *te
 		}
 	}()
 
-	selection, err := selectAdmittedChannel(context.Background(), "default", []model.ChannelCandidateTier{{
+	selection, err := selectAdmittedChannel(context.Background(), "default", "gpt-test", "/v1/chat/completions", []model.ChannelCandidateTier{{
 		Priority: 10,
 		Candidates: []model.ChannelCandidate{
 			{Channel: channels[0], Weight: 1},
@@ -502,7 +545,9 @@ func TestSelectChannelWithAdmissionFallsThroughAutoGroupsOnCapacity(t *testing.T
 	dsn := fmt.Sprintf("file:channel-admission-auto-%d?mode=memory&cache=shared", time.Now().UnixNano())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}))
+	require.NoError(t, db.AutoMigrate(
+		&model.Channel{}, &model.Ability{}, &model.ChannelMetric{}, &model.ChannelStatusEvent{},
+	))
 
 	previousDB := model.DB
 	previousMemoryCache := common.MemoryCacheEnabled
@@ -578,7 +623,9 @@ func TestSelectChannelWithAdmissionDoesNotAdvanceRetryOnCapacitySkip(t *testing.
 	dsn := fmt.Sprintf("file:channel-admission-%d?mode=memory&cache=shared", time.Now().UnixNano())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}))
+	require.NoError(t, db.AutoMigrate(
+		&model.Channel{}, &model.Ability{}, &model.ChannelMetric{}, &model.ChannelStatusEvent{},
+	))
 
 	previousDB := model.DB
 	previousMemoryCache := common.MemoryCacheEnabled

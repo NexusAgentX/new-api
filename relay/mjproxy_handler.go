@@ -606,7 +606,12 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 			common.SysLog("get_channel_null: " + err.Error())
 		}
 		if channel.GetAutoBan() && common.AutomaticDisableChannelEnabled {
-			model.UpdateChannelStatus(midjourneyTask.ChannelId, "", 2, "No available account instance")
+			model.UpdateChannelStatusWithEvent(midjourneyTask.ChannelId, "", common.ChannelStatusAutoDisabled, "No available account instance", model.ChannelStatusChange{
+				Source:       "task_account_pool",
+				ReasonCode:   "all_accounts_unavailable",
+				ReasonDetail: "No available account instance",
+				RequestId:    common.GetContextKeyString(c, common.RequestIdKey),
+			})
 		}
 	}
 	if midjResponse.Code != 1 && midjResponse.Code != 21 && midjResponse.Code != 22 {
