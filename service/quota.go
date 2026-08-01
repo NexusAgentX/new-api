@@ -277,6 +277,7 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 		InjectTieredBillingInfo(other, relayInfo, tieredResult)
 	}
 	attachQuotaSaturation(ctx, relayInfo, other)
+	relayInfo.SetChannelMetricOutputTokens(int64(usage.OutputTokens))
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
 		ChannelId:                relayInfo.ChannelId,
 		PromptTokens:             usage.InputTokens,
@@ -432,6 +433,7 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 		Group:                    relayInfo.UsingGroup,
 		Other:                    other,
 	})
+	relayInfo.SetChannelMetricOutputTokens(int64(usage.CompletionTokens))
 	gopool.Go(func() {
 		perfmetrics.RecordRelaySample(relayInfo, true, int64(usage.CompletionTokens))
 	})

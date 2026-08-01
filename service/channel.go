@@ -17,24 +17,40 @@ func formatNotifyType(channelId int, status int) string {
 
 // disable & notify
 func DisableChannel(channelError types.ChannelError, reason string) {
-	common.SysLog(fmt.Sprintf("通道「%s」（#%d）发生错误，准备禁用，原因：%s", channelError.ChannelName, channelError.ChannelId, common.LocalLogPreview(reason)))
+	DisableChannelWithEvent(channelError, model.ChannelStatusChange{
+		Source:       "relay_error",
+		ReasonCode:   "upstream_error",
+		ReasonDetail: reason,
+	})
+}
 
-	// 检查是否启用自动禁用功能
+func DisableChannelWithEvent(channelError types.ChannelError, change model.ChannelStatusChange) {
+	change.ReasonDetail = model.SanitizeChannelStatusReason(change.ReasonDetail, channelError.UsingKey)
+	common.SysLog(fmt.Sprintf("通道「%s」（#%d）发生错误，准备禁用，原因：%s", channelError.ChannelName, channelError.ChannelId, common.LocalLogPreview(change.ReasonDetail)))
+
 	if !channelError.AutoBan {
 		common.SysLog(fmt.Sprintf("通道「%s」（#%d）未启用自动禁用功能，跳过禁用操作", channelError.ChannelName, channelError.ChannelId))
 		return
 	}
 
-	success := model.UpdateChannelStatus(channelError.ChannelId, channelError.UsingKey, common.ChannelStatusAutoDisabled, reason)
+	success := model.UpdateChannelStatusWithEvent(channelError.ChannelId, channelError.UsingKey, common.ChannelStatusAutoDisabled, change.ReasonDetail, change)
 	if success {
 		subject := fmt.Sprintf("通道「%s」（#%d）已被禁用", channelError.ChannelName, channelError.ChannelId)
-		content := fmt.Sprintf("通道「%s」（#%d）已被禁用，原因：%s", channelError.ChannelName, channelError.ChannelId, reason)
+		content := fmt.Sprintf("通道「%s」（#%d）已被禁用，原因：%s", channelError.ChannelName, channelError.ChannelId, change.ReasonDetail)
 		NotifyRootUser(formatNotifyType(channelError.ChannelId, common.ChannelStatusAutoDisabled), subject, content)
 	}
 }
 
 func EnableChannel(channelId int, usingKey string, channelName string) bool {
-	success := model.EnableChannelIfAutoDisabled(channelId, usingKey)
+	return EnableChannelWithEvent(channelId, usingKey, channelName, model.ChannelStatusChange{
+		Source:       "channel_test",
+		ReasonCode:   "recovery_test_succeeded",
+		ReasonDetail: "Channel recovery test succeeded",
+	})
+}
+
+func EnableChannelWithEvent(channelId int, usingKey string, channelName string, change model.ChannelStatusChange) bool {
+	success := model.EnableChannelIfAutoDisabledWithEvent(channelId, usingKey, change)
 	if success {
 		subject := fmt.Sprintf("通道「%s」（#%d）已被启用", channelName, channelId)
 		content := fmt.Sprintf("通道「%s」（#%d）已被启用", channelName, channelId)

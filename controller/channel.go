@@ -67,6 +67,7 @@ func parseStatusFilter(statusParam string) int {
 func clearChannelInfo(channel *model.Channel) {
 	if channel.ChannelInfo.IsMultiKey {
 		channel.ChannelInfo.MultiKeyDisabledReason = nil
+		channel.ChannelInfo.MultiKeyDisabledReasonCode = nil
 		channel.ChannelInfo.MultiKeyDisabledTime = nil
 	}
 }
@@ -828,7 +829,13 @@ func DisableTagChannels(c *gin.Context) {
 		})
 		return
 	}
-	err = model.DisableChannelByTag(channelTag.Tag)
+	err = model.UpdateChannelStatusByTagWithEvent(channelTag.Tag, common.ChannelStatusManuallyDisabled, model.ChannelStatusChange{
+		Source:       "manual_tag",
+		ReasonCode:   "manual_tag_disable",
+		ReasonDetail: "Channel disabled by a tag operation",
+		ActorUserId:  common.GetContextKeyInt(c, constant.ContextKeyUserId),
+		RequestId:    common.GetContextKeyString(c, common.RequestIdKey),
+	})
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -854,7 +861,13 @@ func EnableTagChannels(c *gin.Context) {
 		})
 		return
 	}
-	err = model.EnableChannelByTag(channelTag.Tag)
+	err = model.UpdateChannelStatusByTagWithEvent(channelTag.Tag, common.ChannelStatusEnabled, model.ChannelStatusChange{
+		Source:       "manual_tag",
+		ReasonCode:   "manual_tag_enable",
+		ReasonDetail: "Channel enabled by a tag operation",
+		ActorUserId:  common.GetContextKeyInt(c, constant.ContextKeyUserId),
+		RequestId:    common.GetContextKeyString(c, common.RequestIdKey),
+	})
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -1203,7 +1216,12 @@ func UpdateChannelStatus(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	changed := model.UpdateChannelStatus(id, "", req.Status, "manual operation")
+	change := manualChannelStatusChange(c, req.Status, false)
+	changed, err := model.UpdateChannelStatusWithEventResult(id, "", req.Status, change.ReasonDetail, change)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	if changed {
 		model.InitChannelCache()
 	}
@@ -1226,8 +1244,14 @@ func BatchUpdateChannelStatus(c *gin.Context) {
 		return
 	}
 	changedCount := 0
+	change := manualChannelStatusChange(c, req.Status, true)
 	for _, id := range req.Ids {
-		if model.UpdateChannelStatus(id, "", req.Status, "manual batch operation") {
+		changed, err := model.UpdateChannelStatusWithEventResult(id, "", req.Status, change.ReasonDetail, change)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		if changed {
 			changedCount++
 		}
 	}
@@ -1244,6 +1268,26 @@ func BatchUpdateChannelStatus(c *gin.Context) {
 		"message": "",
 		"data":    changedCount,
 	})
+}
+
+func manualChannelStatusChange(c *gin.Context, status int, batch bool) model.ChannelStatusChange {
+	action := "disable"
+	if status == common.ChannelStatusEnabled {
+		action = "enable"
+	}
+	source := "manual"
+	detail := "Channel manually " + action + "d"
+	if batch {
+		source = "manual_batch"
+		detail = "Channel " + action + "d by a manual batch operation"
+	}
+	return model.ChannelStatusChange{
+		Source:       source,
+		ReasonCode:   "manual_" + action,
+		ReasonDetail: detail,
+		ActorUserId:  common.GetContextKeyInt(c, constant.ContextKeyUserId),
+		RequestId:    common.GetContextKeyString(c, common.RequestIdKey),
+	}
 }
 
 func isManageableChannelStatus(status int) bool {
@@ -1728,7 +1772,8 @@ func ManageMultiKeys(c *gin.Context) {
 		}
 
 		keyIndex := *request.KeyIndex
-		if keyIndex < 0 || keyIndex >= channel.ChannelInfo.MultiKeySize {
+		keys := channel.GetKeys()
+		if keyIndex < 0 || keyIndex >= len(keys) {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": "密钥索引超出范围",
@@ -1736,22 +1781,21 @@ func ManageMultiKeys(c *gin.Context) {
 			return
 		}
 
-		if channel.ChannelInfo.MultiKeyStatusList == nil {
-			channel.ChannelInfo.MultiKeyStatusList = make(map[int]int)
+		currentStatus := common.ChannelStatusEnabled
+		if status, exists := channel.ChannelInfo.MultiKeyStatusList[keyIndex]; exists {
+			currentStatus = status
 		}
-		if channel.ChannelInfo.MultiKeyDisabledTime == nil {
-			channel.ChannelInfo.MultiKeyDisabledTime = make(map[int]int64)
-		}
-		if channel.ChannelInfo.MultiKeyDisabledReason == nil {
-			channel.ChannelInfo.MultiKeyDisabledReason = make(map[int]string)
-		}
-
-		channel.ChannelInfo.MultiKeyStatusList[keyIndex] = 2 // disabled
-
-		err = channel.Update()
-		if err != nil {
-			common.ApiError(c, err)
-			return
+		if currentStatus != common.ChannelStatusManuallyDisabled {
+			change := manualMultiKeyStatusChange(c, common.ChannelStatusManuallyDisabled, false)
+			changed, err := model.UpdateChannelStatusWithEventResult(channel.Id, keys[keyIndex], common.ChannelStatusManuallyDisabled, change.ReasonDetail, change)
+			if err != nil {
+				common.ApiError(c, err)
+				return
+			}
+			if !changed {
+				common.ApiError(c, fmt.Errorf("failed to disable channel key: channel_id=%d, key_index=%d", channel.Id, keyIndex))
+				return
+			}
 		}
 
 		model.InitChannelCache()
@@ -1771,7 +1815,8 @@ func ManageMultiKeys(c *gin.Context) {
 		}
 
 		keyIndex := *request.KeyIndex
-		if keyIndex < 0 || keyIndex >= channel.ChannelInfo.MultiKeySize {
+		keys := channel.GetKeys()
+		if keyIndex < 0 || keyIndex >= len(keys) {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": "密钥索引超出范围",
@@ -1779,21 +1824,21 @@ func ManageMultiKeys(c *gin.Context) {
 			return
 		}
 
-		// 从状态列表中删除该密钥的记录，使其回到默认启用状态
-		if channel.ChannelInfo.MultiKeyStatusList != nil {
-			delete(channel.ChannelInfo.MultiKeyStatusList, keyIndex)
+		currentStatus := common.ChannelStatusEnabled
+		if status, exists := channel.ChannelInfo.MultiKeyStatusList[keyIndex]; exists {
+			currentStatus = status
 		}
-		if channel.ChannelInfo.MultiKeyDisabledTime != nil {
-			delete(channel.ChannelInfo.MultiKeyDisabledTime, keyIndex)
-		}
-		if channel.ChannelInfo.MultiKeyDisabledReason != nil {
-			delete(channel.ChannelInfo.MultiKeyDisabledReason, keyIndex)
-		}
-
-		err = channel.Update()
-		if err != nil {
-			common.ApiError(c, err)
-			return
+		if currentStatus != common.ChannelStatusEnabled {
+			change := manualMultiKeyStatusChange(c, common.ChannelStatusEnabled, false)
+			changed, err := model.UpdateChannelStatusWithEventResult(channel.Id, keys[keyIndex], common.ChannelStatusEnabled, change.ReasonDetail, change)
+			if err != nil {
+				common.ApiError(c, err)
+				return
+			}
+			if !changed {
+				common.ApiError(c, fmt.Errorf("failed to enable channel key: channel_id=%d, key_index=%d", channel.Id, keyIndex))
+				return
+			}
 		}
 
 		model.InitChannelCache()
@@ -1804,20 +1849,27 @@ func ManageMultiKeys(c *gin.Context) {
 		return
 
 	case "enable_all_keys":
-		// 清空所有禁用状态，使所有密钥回到默认启用状态
-		var enabledCount int
-		if channel.ChannelInfo.MultiKeyStatusList != nil {
-			enabledCount = len(channel.ChannelInfo.MultiKeyStatusList)
-		}
-
-		channel.ChannelInfo.MultiKeyStatusList = make(map[int]int)
-		channel.ChannelInfo.MultiKeyDisabledTime = make(map[int]int64)
-		channel.ChannelInfo.MultiKeyDisabledReason = make(map[int]string)
-
-		err = channel.Update()
-		if err != nil {
-			common.ApiError(c, err)
-			return
+		keys := channel.GetKeys()
+		enabledCount := 0
+		change := manualMultiKeyStatusChange(c, common.ChannelStatusEnabled, true)
+		for keyIndex, key := range keys {
+			status := common.ChannelStatusEnabled
+			if current, exists := channel.ChannelInfo.MultiKeyStatusList[keyIndex]; exists {
+				status = current
+			}
+			if status == common.ChannelStatusEnabled {
+				continue
+			}
+			changed, err := model.UpdateChannelStatusWithEventResult(channel.Id, key, common.ChannelStatusEnabled, change.ReasonDetail, change)
+			if err != nil {
+				common.ApiError(c, err)
+				return
+			}
+			if !changed {
+				common.ApiError(c, fmt.Errorf("failed to enable channel key: channel_id=%d, key_index=%d", channel.Id, keyIndex))
+				return
+			}
+			enabledCount++
 		}
 
 		model.InitChannelCache()
@@ -1828,29 +1880,27 @@ func ManageMultiKeys(c *gin.Context) {
 		return
 
 	case "disable_all_keys":
-		// 禁用所有启用的密钥
-		if channel.ChannelInfo.MultiKeyStatusList == nil {
-			channel.ChannelInfo.MultiKeyStatusList = make(map[int]int)
-		}
-		if channel.ChannelInfo.MultiKeyDisabledTime == nil {
-			channel.ChannelInfo.MultiKeyDisabledTime = make(map[int]int64)
-		}
-		if channel.ChannelInfo.MultiKeyDisabledReason == nil {
-			channel.ChannelInfo.MultiKeyDisabledReason = make(map[int]string)
-		}
-
-		var disabledCount int
-		for i := 0; i < channel.ChannelInfo.MultiKeySize; i++ {
-			status := 1 // default enabled
-			if s, exists := channel.ChannelInfo.MultiKeyStatusList[i]; exists {
-				status = s
+		keys := channel.GetKeys()
+		disabledCount := 0
+		change := manualMultiKeyStatusChange(c, common.ChannelStatusManuallyDisabled, true)
+		for keyIndex, key := range keys {
+			status := common.ChannelStatusEnabled
+			if current, exists := channel.ChannelInfo.MultiKeyStatusList[keyIndex]; exists {
+				status = current
 			}
-
-			// 只禁用当前启用的密钥
-			if status == 1 {
-				channel.ChannelInfo.MultiKeyStatusList[i] = 2 // disabled
-				disabledCount++
+			if status != common.ChannelStatusEnabled {
+				continue
 			}
+			changed, err := model.UpdateChannelStatusWithEventResult(channel.Id, key, common.ChannelStatusManuallyDisabled, change.ReasonDetail, change)
+			if err != nil {
+				common.ApiError(c, err)
+				return
+			}
+			if !changed {
+				common.ApiError(c, fmt.Errorf("failed to disable channel key: channel_id=%d, key_index=%d", channel.Id, keyIndex))
+				return
+			}
+			disabledCount++
 		}
 
 		if disabledCount == 0 {
@@ -1858,12 +1908,6 @@ func ManageMultiKeys(c *gin.Context) {
 				"success": false,
 				"message": "没有可禁用的密钥",
 			})
-			return
-		}
-
-		err = channel.Update()
-		if err != nil {
-			common.ApiError(c, err)
 			return
 		}
 
@@ -1897,6 +1941,7 @@ func ManageMultiKeys(c *gin.Context) {
 		var newStatusList = make(map[int]int)
 		var newDisabledTime = make(map[int]int64)
 		var newDisabledReason = make(map[int]string)
+		var newDisabledReasonCode = make(map[int]string)
 
 		newIndex := 0
 		for i, key := range keys {
@@ -1923,6 +1968,11 @@ func ManageMultiKeys(c *gin.Context) {
 					newDisabledReason[newIndex] = r
 				}
 			}
+			if channel.ChannelInfo.MultiKeyDisabledReasonCode != nil {
+				if reasonCode, exists := channel.ChannelInfo.MultiKeyDisabledReasonCode[i]; exists {
+					newDisabledReasonCode[newIndex] = reasonCode
+				}
+			}
 			newIndex++
 		}
 
@@ -1940,6 +1990,7 @@ func ManageMultiKeys(c *gin.Context) {
 		channel.ChannelInfo.MultiKeyStatusList = newStatusList
 		channel.ChannelInfo.MultiKeyDisabledTime = newDisabledTime
 		channel.ChannelInfo.MultiKeyDisabledReason = newDisabledReason
+		channel.ChannelInfo.MultiKeyDisabledReasonCode = newDisabledReasonCode
 
 		err = channel.Update()
 		if err != nil {
@@ -1961,6 +2012,7 @@ func ManageMultiKeys(c *gin.Context) {
 		var newStatusList = make(map[int]int)
 		var newDisabledTime = make(map[int]int64)
 		var newDisabledReason = make(map[int]string)
+		var newDisabledReasonCode = make(map[int]string)
 
 		newIndex := 0
 		for i, key := range keys {
@@ -1989,6 +2041,11 @@ func ManageMultiKeys(c *gin.Context) {
 							newDisabledReason[newIndex] = r
 						}
 					}
+					if channel.ChannelInfo.MultiKeyDisabledReasonCode != nil {
+						if reasonCode, exists := channel.ChannelInfo.MultiKeyDisabledReasonCode[i]; exists {
+							newDisabledReasonCode[newIndex] = reasonCode
+						}
+					}
 				}
 				newIndex++
 			}
@@ -2008,6 +2065,7 @@ func ManageMultiKeys(c *gin.Context) {
 		channel.ChannelInfo.MultiKeyStatusList = newStatusList
 		channel.ChannelInfo.MultiKeyDisabledTime = newDisabledTime
 		channel.ChannelInfo.MultiKeyDisabledReason = newDisabledReason
+		channel.ChannelInfo.MultiKeyDisabledReasonCode = newDisabledReasonCode
 
 		err = channel.Update()
 		if err != nil {
@@ -2029,6 +2087,26 @@ func ManageMultiKeys(c *gin.Context) {
 			"message": "不支持的操作",
 		})
 		return
+	}
+}
+
+func manualMultiKeyStatusChange(c *gin.Context, status int, batch bool) model.ChannelStatusChange {
+	action := "disable"
+	if status == common.ChannelStatusEnabled {
+		action = "enable"
+	}
+	source := "manual"
+	detail := "Key manually " + action + "d"
+	if batch {
+		source = "manual_batch"
+		detail = "Key " + action + "d by a manual batch operation"
+	}
+	return model.ChannelStatusChange{
+		Source:       source,
+		ReasonCode:   "manual_" + action,
+		ReasonDetail: detail,
+		ActorUserId:  common.GetContextKeyInt(c, constant.ContextKeyUserId),
+		RequestId:    common.GetContextKeyString(c, common.RequestIdKey),
 	}
 }
 

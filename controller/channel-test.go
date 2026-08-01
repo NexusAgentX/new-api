@@ -1318,13 +1318,34 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 
 		// disable channel
 		if allowDisable && isChannelEnabled && shouldBanChannel && channel.GetAutoBan() {
-			processChannelError(result.context, nil, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
+			processChannelErrorWithStatusChange(
+				result.context,
+				nil,
+				*types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()),
+				newAPIError,
+				&model.ChannelStatusChange{
+					Source:       "scheduled_channel_test",
+					ReasonCode:   "channel_test_failed",
+					ReasonDetail: fmt.Sprintf("Scheduled channel test failed with HTTP %d", newAPIError.StatusCode),
+				},
+			)
 			summary.Disabled++
 		}
 
 		// enable channel
 		if !isChannelEnabled && shouldRecoverChannelAfterTest(result, newAPIError, channel.Status) {
-			if service.EnableChannel(channel.Id, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.Name) {
+			recoveryChange := model.ChannelStatusChange{
+				Source:       "scheduled_channel_test",
+				ReasonCode:   "channel_test_succeeded",
+				ReasonDetail: "Scheduled channel recovery test succeeded",
+				RequestId:    common.GetContextKeyString(result.context, common.RequestIdKey),
+			}
+			if !allowDisable {
+				recoveryChange.Source = "passive_recovery_test"
+				recoveryChange.ReasonCode = "passive_recovery_succeeded"
+				recoveryChange.ReasonDetail = "Passive channel recovery test succeeded"
+			}
+			if service.EnableChannelWithEvent(channel.Id, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.Name, recoveryChange) {
 				summary.Enabled++
 			}
 		}

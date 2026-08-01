@@ -46,6 +46,8 @@ func TestMain(m *testing.M) {
 		&model.Token{},
 		&model.Log{},
 		&model.Channel{},
+		&model.ChannelMetric{},
+		&model.ChannelStatusEvent{},
 		&model.TopUp{},
 		&model.SubscriptionPlan{},
 		&model.UserSubscription{},

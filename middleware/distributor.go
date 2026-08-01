@@ -16,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	channelmetrics "github.com/QuantumNous/new-api/pkg/channel_metrics"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -74,6 +75,12 @@ func Distribute() func(c *gin.Context) {
 				return
 			}
 			if channel.Status != common.ChannelStatusEnabled {
+				channelmetrics.RecordLocalSkip(channelmetrics.AttemptMeta{
+					ChannelId: channel.Id,
+					Group:     common.GetContextKeyString(c, constant.ContextKeyUsingGroup),
+					ModelName: modelRequest.Model,
+					Endpoint:  c.Request.URL.Path,
+				}, channelmetrics.SkipReasonDisabled)
 				abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorChannelDisabled))
 				return
 			}
@@ -84,6 +91,7 @@ func Distribute() func(c *gin.Context) {
 				return
 			}
 			if !decision.Allowed {
+				recordAdmissionSkip(channel, common.GetContextKeyString(c, constant.ContextKeyUsingGroup), modelRequest.Model, c.Request.URL.Path, decision)
 				abortWithChannelCapacity(c, decision.RetryAfter)
 				return
 			}
@@ -169,6 +177,14 @@ func Distribute() func(c *gin.Context) {
 						channelSupportsRequestPath(preferred, c.Request.URL.Path, modelRequest.Model) &&
 						model.IsChannelEnabledForGroupModel(selectGroup, modelRequest.Model, preferred.Id)
 					if !preferredAvailable {
+						if affinityErr == nil && preferred != nil && preferred.Status != common.ChannelStatusEnabled {
+							channelmetrics.RecordLocalSkip(channelmetrics.AttemptMeta{
+								ChannelId: preferred.Id,
+								Group:     selectGroup,
+								ModelName: modelRequest.Model,
+								Endpoint:  c.Request.URL.Path,
+							}, channelmetrics.SkipReasonDisabled)
+						}
 						if !service.ShouldKeepChannelAffinityOnChannelDisabled() {
 							service.ClearCurrentChannelAffinityCache(c)
 						}
@@ -182,6 +198,7 @@ func Distribute() func(c *gin.Context) {
 								return
 							}
 							if !decision.Allowed {
+								recordAdmissionSkip(preferred, selectGroup, modelRequest.Model, c.Request.URL.Path, decision)
 								abortWithChannelCapacity(c, decision.RetryAfter)
 								return
 							}
@@ -219,6 +236,22 @@ func Distribute() func(c *gin.Context) {
 			}
 		}
 	}
+}
+
+func recordAdmissionSkip(channel *model.Channel, group string, modelName string, endpoint string, decision service.ChannelAdmissionDecision) {
+	if channel == nil {
+		return
+	}
+	reason := channelmetrics.SkipReasonRPM
+	if decision.Reason == service.ChannelAdmissionReasonConcurrency {
+		reason = channelmetrics.SkipReasonConcurrency
+	}
+	channelmetrics.RecordLocalSkip(channelmetrics.AttemptMeta{
+		ChannelId: channel.Id,
+		Group:     group,
+		ModelName: modelName,
+		Endpoint:  endpoint,
+	}, reason)
 }
 
 func abortWithChannelCapacity(c *gin.Context, retryAfter time.Duration) {

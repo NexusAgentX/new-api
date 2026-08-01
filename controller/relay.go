@@ -16,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	channelmetrics "github.com/QuantumNous/new-api/pkg/channel_metrics"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/relay"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -220,6 +221,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	relayInfo.LastError = nil
 	var activeAdmissionLease *service.ChannelAdmissionLease
 	defer func() { releaseChannelAdmissionLease(c, activeAdmissionLease) }()
+	var activeMetricAttempt *channelmetrics.Attempt
+	defer func() {
+		finishChannelMetricAttempt(relayInfo, activeMetricAttempt, channelmetrics.AttemptOutcome{ErrorClass: channelmetrics.ErrorClassOther})
+	}()
 
 	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
 		if contextErr := requestContextError(c); contextErr != nil {
@@ -252,6 +257,15 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 		c.Request.Body = io.NopCloser(bodyStorage)
 		activeAdmissionLease.Commit()
+		activeMetricAttempt = channelmetrics.BeginAttempt(c.Request.Context(), channelmetrics.AttemptMeta{
+			ChannelId:  channel.Id,
+			Group:      relayInfo.UsingGroup,
+			ModelName:  relayInfo.OriginModelName,
+			Endpoint:   c.Request.URL.Path,
+			RetryIndex: relayInfo.RetryIndex,
+			IsStream:   relayInfo.IsStream,
+		})
+		relayInfo.SetChannelMetricAttempt(activeMetricAttempt)
 
 		switch relayFormat {
 		case types.RelayFormatOpenAIRealtime:
@@ -272,9 +286,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		if attemptResult.TimedOut && contextErr == nil {
 			newAPIError = types.NewUpstreamFirstResponseTimeoutError(attemptResult.TimeoutSeconds)
 		}
+		finishChannelMetricAttempt(relayInfo, activeMetricAttempt, channelAttemptOutcome(newAPIError, contextErr, attemptResult, relayInfo.IsStream && activeMetricAttempt.HasFirstResponse()))
+		activeMetricAttempt = nil
 		if attemptResult.Monitored && contextErr == nil {
+			requestId := common.GetContextKeyString(c, common.RequestIdKey)
 			gopool.Go(func() {
-				service.RecordFirstResponseAttempt(channelError, attemptResult.TimedOut)
+				service.RecordFirstResponseAttempt(channelError, attemptResult.TimedOut, requestId)
 			})
 		}
 
@@ -383,6 +400,7 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 			return nil, nil, types.NewError(fmt.Errorf("acquire initial channel #%d admission: %w", channelID, err), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 		}
 		if !decision.Allowed {
+			recordChannelAdmissionSkip(channel, info.UsingGroup, info.OriginModelName, c.Request.URL.Path, decision)
 			return nil, nil, channelCapacityAPIError(c, decision.RetryAfter)
 		}
 		return channel, lease, nil
@@ -411,6 +429,22 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 	return selection.Channel, selection.Lease, nil
 }
 
+func recordChannelAdmissionSkip(channel *model.Channel, group string, modelName string, endpoint string, decision service.ChannelAdmissionDecision) {
+	if channel == nil {
+		return
+	}
+	reason := channelmetrics.SkipReasonRPM
+	if decision.Reason == service.ChannelAdmissionReasonConcurrency {
+		reason = channelmetrics.SkipReasonConcurrency
+	}
+	channelmetrics.RecordLocalSkip(channelmetrics.AttemptMeta{
+		ChannelId: channel.Id,
+		Group:     group,
+		ModelName: modelName,
+		Endpoint:  endpoint,
+	}, reason)
+}
+
 func channelCapacityAPIError(c *gin.Context, retryAfter time.Duration) *types.NewAPIError {
 	retryAfterSeconds := int64((retryAfter + time.Second - 1) / time.Second)
 	if retryAfterSeconds < 1 {
@@ -430,6 +464,87 @@ func releaseChannelAdmissionLease(c *gin.Context, lease *service.ChannelAdmissio
 	if err := lease.Release(); err != nil {
 		logger.LogWarn(c, fmt.Sprintf("release channel admission lease failed: %v", err))
 	}
+}
+
+func finishChannelMetricAttempt(relayInfo *relaycommon.RelayInfo, attempt *channelmetrics.Attempt, outcome channelmetrics.AttemptOutcome) {
+	if attempt == nil {
+		return
+	}
+	relayInfo.SetChannelMetricAttempt(nil)
+	attempt.Finish(outcome)
+}
+
+func channelAttemptOutcome(newAPIError *types.NewAPIError, contextErr *types.NewAPIError, firstResponse relaycommon.FirstResponseAttemptResult, streamStarted bool) channelmetrics.AttemptOutcome {
+	outcome := channelmetrics.AttemptOutcome{
+		FirstResponseMonitored: firstResponse.Monitored,
+		FirstResponseTimedOut:  firstResponse.TimedOut,
+	}
+	metricError := newAPIError
+	if contextErr != nil {
+		metricError = contextErr
+	}
+	if metricError != nil {
+		outcome.ErrorCode = string(metricError.GetErrorCode())
+		outcome.HTTPStatus = metricError.StatusCode
+	}
+	if contextErr != nil || (newAPIError != nil && newAPIError.GetErrorCode() == types.ErrorCodeRequestCanceled) {
+		outcome.ErrorClass = channelmetrics.ErrorClassCanceled
+		return outcome
+	}
+	if newAPIError == nil {
+		outcome.Success = true
+		return outcome
+	}
+	if firstResponse.TimedOut || newAPIError.GetErrorCode() == types.ErrorCodeUpstreamFirstResponseTimeout {
+		outcome.ErrorClass = channelmetrics.ErrorClassTimeout
+		return outcome
+	}
+	switch newAPIError.StatusCode {
+	case http.StatusTooManyRequests:
+		outcome.ErrorClass = channelmetrics.ErrorClass429
+	case http.StatusRequestTimeout, http.StatusGatewayTimeout:
+		outcome.ErrorClass = channelmetrics.ErrorClassTimeout
+	default:
+		if newAPIError.StatusCode >= 400 && newAPIError.StatusCode < 500 {
+			outcome.ErrorClass = channelmetrics.ErrorClass4xx
+		} else if newAPIError.StatusCode >= 500 && newAPIError.StatusCode < 600 {
+			outcome.ErrorClass = channelmetrics.ErrorClass5xx
+		} else if streamStarted {
+			outcome.ErrorClass = channelmetrics.ErrorClassStream
+		} else {
+			outcome.ErrorClass = channelmetrics.ErrorClassOther
+		}
+	}
+	return outcome
+}
+
+func taskChannelAttemptOutcome(taskErr *taskdto.TaskError) channelmetrics.AttemptOutcome {
+	if taskErr == nil {
+		return channelmetrics.AttemptOutcome{Success: true}
+	}
+	outcome := channelmetrics.AttemptOutcome{
+		ErrorCode:  taskErr.Code,
+		HTTPStatus: taskErr.StatusCode,
+		ErrorClass: channelmetrics.ErrorClassOther,
+	}
+	if taskErr.Code == string(types.ErrorCodeRequestCanceled) {
+		outcome.ErrorClass = channelmetrics.ErrorClassCanceled
+		return outcome
+	}
+	switch taskErr.StatusCode {
+	case http.StatusTooManyRequests:
+		outcome.ErrorClass = channelmetrics.ErrorClass429
+		return outcome
+	case http.StatusRequestTimeout, http.StatusGatewayTimeout:
+		outcome.ErrorClass = channelmetrics.ErrorClassTimeout
+		return outcome
+	}
+	if taskErr.StatusCode >= 400 && taskErr.StatusCode < 500 {
+		outcome.ErrorClass = channelmetrics.ErrorClass4xx
+	} else if taskErr.StatusCode >= 500 && taskErr.StatusCode < 600 {
+		outcome.ErrorClass = channelmetrics.ErrorClass5xx
+	}
+	return outcome
 }
 
 func requestContextError(c *gin.Context) *types.NewAPIError {
@@ -481,12 +596,36 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 }
 
 func processChannelError(c *gin.Context, relayInfo *relaycommon.RelayInfo, channelError types.ChannelError, err *types.NewAPIError) {
+	processChannelErrorWithStatusChange(c, relayInfo, channelError, err, nil)
+}
+
+func processChannelErrorWithStatusChange(c *gin.Context, relayInfo *relaycommon.RelayInfo, channelError types.ChannelError, err *types.NewAPIError, statusChange *model.ChannelStatusChange) {
 	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, common.LocalLogPreview(err.Error())))
 	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
 	if service.ShouldDisableChannel(err) && channelError.AutoBan {
+		reasonCode := "upstream_error"
+		if err.StatusCode >= 100 && err.StatusCode <= 599 {
+			reasonCode = fmt.Sprintf("upstream_http_%d", err.StatusCode)
+		}
+		detail := fmt.Sprintf("Upstream attempt failed with HTTP %d", err.StatusCode)
+		change := model.ChannelStatusChange{
+			Source:       "relay_error",
+			ReasonCode:   reasonCode,
+			ReasonDetail: detail,
+			RequestId:    common.GetContextKeyString(c, common.RequestIdKey),
+		}
+		if statusChange != nil {
+			change = *statusChange
+			if change.ReasonDetail == "" {
+				change.ReasonDetail = detail
+			}
+			if change.RequestId == "" {
+				change.RequestId = common.GetContextKeyString(c, common.RequestIdKey)
+			}
+		}
 		gopool.Go(func() {
-			service.DisableChannel(channelError, err.ErrorWithStatusCode())
+			service.DisableChannelWithEvent(channelError, change)
 		})
 	}
 
@@ -644,6 +783,10 @@ func RelayTask(c *gin.Context) {
 	}
 	var activeAdmissionLease *service.ChannelAdmissionLease
 	defer func() { releaseChannelAdmissionLease(c, activeAdmissionLease) }()
+	var activeMetricAttempt *channelmetrics.Attempt
+	defer func() {
+		finishChannelMetricAttempt(relayInfo, activeMetricAttempt, channelmetrics.AttemptOutcome{ErrorClass: channelmetrics.ErrorClassOther})
+	}()
 
 	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
 		var channel *model.Channel
@@ -664,6 +807,7 @@ func RelayTask(c *gin.Context) {
 					break
 				}
 				if !decision.Allowed {
+					recordChannelAdmissionSkip(channel, relayInfo.UsingGroup, relayInfo.OriginModelName, c.Request.URL.Path, decision)
 					capacityErr := channelCapacityAPIError(c, decision.RetryAfter)
 					taskErr = service.TaskErrorWrapperLocal(capacityErr.Err, string(capacityErr.GetErrorCode()), capacityErr.StatusCode)
 					break
@@ -704,8 +848,18 @@ func RelayTask(c *gin.Context) {
 		}
 		c.Request.Body = io.NopCloser(bodyStorage)
 		activeAdmissionLease.Commit()
+		activeMetricAttempt = channelmetrics.BeginAttempt(c.Request.Context(), channelmetrics.AttemptMeta{
+			ChannelId:  channel.Id,
+			Group:      relayInfo.UsingGroup,
+			ModelName:  relayInfo.OriginModelName,
+			Endpoint:   c.Request.URL.Path,
+			RetryIndex: retryParam.GetRetry(),
+		})
+		relayInfo.SetChannelMetricAttempt(activeMetricAttempt)
 
 		result, taskErr = relay.RelayTaskSubmit(c, relayInfo)
+		finishChannelMetricAttempt(relayInfo, activeMetricAttempt, taskChannelAttemptOutcome(taskErr))
+		activeMetricAttempt = nil
 		releaseChannelAdmissionLease(c, activeAdmissionLease)
 		activeAdmissionLease = nil
 		if taskErr == nil {
