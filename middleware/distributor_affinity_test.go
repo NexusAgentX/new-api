@@ -82,10 +82,12 @@ func TestAutoGroupPolicyRestrictsAffinityAndRetriesToFrozenCandidates(t *testing
 		Retry:       common.GetPointer(0),
 	}
 
-	first, firstGroup, err := service.CacheGetRandomSatisfiedChannel(param)
+	firstSelection, err := service.SelectChannelWithAdmission(param)
 	require.NoError(t, err)
+	require.NotNil(t, firstSelection)
+	first := firstSelection.Channel
 	require.Equal(t, 302, first.Id)
-	require.Equal(t, "preferred", firstGroup)
+	require.Equal(t, "preferred", firstSelection.Group)
 	require.Equal(t, []string{"preferred", "premium"}, common.GetContextKeyStringSlice(ctx, constant.ContextKeyAutoGroupCandidates))
 
 	require.NoError(t, setting.UpdateAutoGroupsByJsonString(`["cheap","premium"]`))
@@ -93,10 +95,11 @@ func TestAutoGroupPolicyRestrictsAffinityAndRetriesToFrozenCandidates(t *testing
 	model.InitChannelCache()
 	param.SetRetry(common.RetryTimes + 1)
 
-	second, secondGroup, err := service.CacheGetRandomSatisfiedChannel(param)
+	secondSelection, err := service.SelectChannelWithAdmission(param)
 	require.NoError(t, err)
-	require.Equal(t, 303, second.Id)
-	require.Equal(t, "premium", secondGroup)
+	require.NotNil(t, secondSelection)
+	require.Equal(t, 303, secondSelection.Channel.Id)
+	require.Equal(t, "premium", secondSelection.Group)
 }
 
 func TestAutoGroupAffinityReturnsToRecoveredEarlierGroup(t *testing.T) {

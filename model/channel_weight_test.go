@@ -63,6 +63,17 @@ func TestSelectWeightedIndexUsesRawWeightIntervals(t *testing.T) {
 	}
 }
 
+func TestPickWeightedChannelCandidatePreservesZeroWeightSemantics(t *testing.T) {
+	zeroWeight := ChannelCandidate{Channel: &Channel{Id: 207}, Weight: 0}
+	positiveWeight := ChannelCandidate{Channel: &Channel{Id: 208}, Weight: 1}
+
+	candidate, index, err := PickWeightedChannelCandidate([]ChannelCandidate{zeroWeight, positiveWeight})
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, index)
+	assert.Equal(t, positiveWeight.Channel.Id, candidate.Channel.Id)
+}
+
 func TestSelectWeightedIndexRejectsEmptyWeights(t *testing.T) {
 	_, err := selectWeightedIndexWithDraw(nil, func(uint64) uint64 {
 		t.Fatal("draw must not be called for an empty weight list")

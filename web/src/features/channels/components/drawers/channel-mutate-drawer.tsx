@@ -158,6 +158,7 @@ import { useChannelMutateForm } from '../../hooks/use-channel-mutate-form'
 import {
   CHANNEL_FORM_DEFAULT_VALUES,
   CHANNEL_TYPE_ADVANCED_CUSTOM,
+  MAX_CHANNEL_ADMISSION_LIMIT,
   channelFormSchema,
   channelsQueryKeys,
   getAdvancedCustomStats,
@@ -299,6 +300,8 @@ const SENSITIVE_FORM_FIELDS = [
   'force_format',
   'thinking_to_content',
   'proxy',
+  'max_concurrency',
+  'rpm_limit',
   'pass_through_body_enabled',
   'system_prompt',
   'system_prompt_override',
@@ -366,6 +369,8 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.test_sample_tokens ||
     values.test_prepend_nonce ||
     values.test_disable_threshold_seconds !== undefined ||
+    (values.max_concurrency ?? 0) > 0 ||
+    (values.rpm_limit ?? 0) > 0 ||
     values.claude_beta_query ||
     values.upstream_model_update_check_enabled ||
     values.upstream_model_update_auto_sync_enabled ||
@@ -764,6 +769,8 @@ export function ChannelMutateDrawer({
   const currentAdvancedCustom = form.watch('advanced_custom')
   const currentPriority = form.watch('priority')
   const currentWeight = form.watch('weight')
+  const currentMaxConcurrency = form.watch('max_concurrency')
+  const currentRPMLimit = form.watch('rpm_limit')
   const currentTestModel = form.watch('test_model')
   const currentAutoBan = form.watch('auto_ban')
   const currentTestEndpointType = form.watch('test_endpoint_type')
@@ -1057,6 +1064,8 @@ export function ChannelMutateDrawer({
   const routingStrategyConfigured = Boolean(
     currentPriority ||
     currentWeight ||
+    currentMaxConcurrency ||
+    currentRPMLimit ||
     currentTestModel?.trim() ||
     (currentTestEndpointType ?? 'auto') !== 'auto' ||
     currentTestStream !== undefined ||
@@ -3869,6 +3878,76 @@ export function ChannelMutateDrawer({
                                     </FormControl>
                                     <FormDescription>
                                       {t(FIELD_DESCRIPTIONS.WEIGHT)}
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            </div>
+
+                            <div className='grid gap-4 sm:grid-cols-2'>
+                              <FormField
+                                control={form.control}
+                                name='max_concurrency'
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>
+                                      {t('Maximum concurrency')}
+                                    </FormLabel>
+                                    <FormControl>
+                                      <Input
+                                        type='number'
+                                        inputMode='numeric'
+                                        min={0}
+                                        max={MAX_CHANNEL_ADMISSION_LIMIT}
+                                        step={1}
+                                        value={field.value ?? 0}
+                                        onChange={(event) =>
+                                          field.onChange(
+                                            event.target.value === ''
+                                              ? 0
+                                              : Number(event.target.value)
+                                          )
+                                        }
+                                      />
+                                    </FormControl>
+                                    <FormDescription>
+                                      {t(
+                                        'Maximum in-flight requests for this channel. 0 means unlimited.'
+                                      )}
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+
+                              <FormField
+                                control={form.control}
+                                name='rpm_limit'
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>{t('RPM limit')}</FormLabel>
+                                    <FormControl>
+                                      <Input
+                                        type='number'
+                                        inputMode='numeric'
+                                        min={0}
+                                        max={MAX_CHANNEL_ADMISSION_LIMIT}
+                                        step={1}
+                                        value={field.value ?? 0}
+                                        onChange={(event) =>
+                                          field.onChange(
+                                            event.target.value === ''
+                                              ? 0
+                                              : Number(event.target.value)
+                                          )
+                                        }
+                                      />
+                                    </FormControl>
+                                    <FormDescription>
+                                      {t(
+                                        'Maximum request starts in a rolling 60-second window. 0 means unlimited.'
+                                      )}
                                     </FormDescription>
                                     <FormMessage />
                                   </FormItem>

@@ -79,6 +79,10 @@ function isOptionalProxyURL(value: string | undefined): boolean {
   }
 }
 
+export const MAX_CHANNEL_ADMISSION_LIMIT = 1_000_000
+const CHANNEL_ADMISSION_LIMIT_ERROR =
+  'Channel limits must be whole numbers from 0 to 1000000'
+
 function parseOptionalJson(value: string | undefined): unknown {
   if (!value?.trim()) return undefined
   return JSON.parse(value)
@@ -237,6 +241,18 @@ export const channelFormSchema = z
       .string()
       .optional()
       .refine(isOptionalProxyURL, ERROR_MESSAGES.INVALID_PROXY),
+    max_concurrency: z
+      .number()
+      .int(CHANNEL_ADMISSION_LIMIT_ERROR)
+      .min(0, CHANNEL_ADMISSION_LIMIT_ERROR)
+      .max(MAX_CHANNEL_ADMISSION_LIMIT, CHANNEL_ADMISSION_LIMIT_ERROR)
+      .optional(),
+    rpm_limit: z
+      .number()
+      .int(CHANNEL_ADMISSION_LIMIT_ERROR)
+      .min(0, CHANNEL_ADMISSION_LIMIT_ERROR)
+      .max(MAX_CHANNEL_ADMISSION_LIMIT, CHANNEL_ADMISSION_LIMIT_ERROR)
+      .optional(),
     pass_through_body_enabled: z.boolean().optional(),
     system_prompt: z.string().optional(),
     system_prompt_override: z.boolean().optional(),
@@ -406,6 +422,8 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   force_format: false,
   thinking_to_content: false,
   proxy: '',
+  max_concurrency: 0,
+  rpm_limit: 0,
   pass_through_body_enabled: false,
   system_prompt: '',
   system_prompt_override: false,
@@ -450,6 +468,8 @@ export function transformChannelToFormDefaults(
     force_format: false,
     thinking_to_content: false,
     proxy: '',
+    max_concurrency: 0,
+    rpm_limit: 0,
     pass_through_body_enabled: false,
     system_prompt: '',
     system_prompt_override: false,
@@ -475,6 +495,11 @@ export function transformChannelToFormDefaults(
         force_format: parsed.force_format || false,
         thinking_to_content: parsed.thinking_to_content || false,
         proxy: parsed.proxy || '',
+        max_concurrency:
+          typeof parsed.max_concurrency === 'number'
+            ? parsed.max_concurrency
+            : 0,
+        rpm_limit: typeof parsed.rpm_limit === 'number' ? parsed.rpm_limit : 0,
         pass_through_body_enabled: parsed.pass_through_body_enabled || false,
         system_prompt: parsed.system_prompt || '',
         system_prompt_override: parsed.system_prompt_override || false,
@@ -616,8 +641,8 @@ export function transformChannelToFormDefaults(
 /**
  * Build the setting JSON string from form extra settings
  */
-function buildSettingJSON(formData: ChannelFormValues): string {
-  const settingObj = {
+export function buildSettingJSON(formData: ChannelFormValues): string {
+  const settingObj: Record<string, unknown> = {
     force_format: formData.force_format || false,
     thinking_to_content: formData.thinking_to_content || false,
     proxy: formData.proxy?.trim() || '',
@@ -631,6 +656,14 @@ function buildSettingJSON(formData: ChannelFormValues): string {
     test_prepend_nonce: formData.test_prepend_nonce === true,
     test_disable_threshold_seconds: formData.test_disable_threshold_seconds,
   }
+
+  if ((formData.max_concurrency ?? 0) > 0) {
+    settingObj.max_concurrency = formData.max_concurrency
+  }
+  if ((formData.rpm_limit ?? 0) > 0) {
+    settingObj.rpm_limit = formData.rpm_limit
+  }
+
   return JSON.stringify(settingObj)
 }
 

@@ -1,7 +1,6 @@
 package model
 
 import (
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -110,81 +109,98 @@ func SyncChannelCache(frequency int) {
 	}
 }
 
-func GetRandomSatisfiedChannel(group string, model string, retry int, requestPath string) (*Channel, error) {
-	// if memory cache is disabled, get channel directly from database
+type ChannelCandidate struct {
+	Channel *Channel
+	Weight  uint
+}
+
+type ChannelCandidateTier struct {
+	Priority   int64
+	Candidates []ChannelCandidate
+}
+
+// GetSatisfiedChannelTiers loads every eligible channel once and groups them by
+// descending priority. Candidate weights preserve the existing cache and direct
+// database selection semantics.
+func GetSatisfiedChannelTiers(group string, modelName string, requestPath string) ([]ChannelCandidateTier, error) {
 	if !common.MemoryCacheEnabled {
-		return GetChannel(group, model, retry, requestPath)
+		return getDatabaseSatisfiedChannelTiers(group, modelName, requestPath)
 	}
 
 	channelSyncLock.RLock()
 	defer channelSyncLock.RUnlock()
 
-	// First, try to find channels with the exact model name.
-	channels := filterChannelsByRequestPathAndModel(group2model2channels[group][model], requestPath, model)
-
-	// If no channels found, try to find channels with the normalized model name.
-	if len(channels) == 0 {
-		normalizedModel := ratio_setting.FormatMatchingModelName(model)
-		channels = filterChannelsByRequestPathAndModel(group2model2channels[group][normalizedModel], requestPath, model)
+	channelIDs := filterChannelsByRequestPathAndModel(group2model2channels[group][modelName], requestPath, modelName)
+	if len(channelIDs) == 0 {
+		normalizedModel := ratio_setting.FormatMatchingModelName(modelName)
+		channelIDs = filterChannelsByRequestPathAndModel(group2model2channels[group][normalizedModel], requestPath, modelName)
 	}
-
-	if len(channels) == 0 {
+	if len(channelIDs) == 0 {
 		return nil, nil
 	}
 
-	if len(channels) == 1 {
-		if channel, ok := channelsIDM[channels[0]]; ok {
-			return channel, nil
+	channelsByPriority := make(map[int64][]*Channel)
+	priorities := make([]int64, 0)
+	for _, channelID := range channelIDs {
+		channel, ok := channelsIDM[channelID]
+		if !ok {
+			return nil, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", channelID)
 		}
-		return nil, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", channels[0])
-	}
-
-	uniquePriorities := make(map[int]bool)
-	for _, channelId := range channels {
-		if channel, ok := channelsIDM[channelId]; ok {
-			uniquePriorities[int(channel.GetPriority())] = true
-		} else {
-			return nil, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", channelId)
+		priority := channel.GetPriority()
+		if _, exists := channelsByPriority[priority]; !exists {
+			priorities = append(priorities, priority)
 		}
+		channelsByPriority[priority] = append(channelsByPriority[priority], channel)
 	}
-	var sortedUniquePriorities []int
-	for priority := range uniquePriorities {
-		sortedUniquePriorities = append(sortedUniquePriorities, priority)
-	}
-	sort.Sort(sort.Reverse(sort.IntSlice(sortedUniquePriorities)))
+	sort.Slice(priorities, func(i, j int) bool { return priorities[i] > priorities[j] })
 
-	if retry >= len(uniquePriorities) {
-		retry = len(uniquePriorities) - 1
-	}
-	targetPriority := int64(sortedUniquePriorities[retry])
-
-	// get the priority for the given retry number
-	targetChannels := make([]*Channel, 0, len(channels))
-	targetWeights := make([]uint, 0, len(channels))
-	for _, channelId := range channels {
-		if channel, ok := channelsIDM[channelId]; ok {
-			if channel.GetPriority() == targetPriority {
-				weight := uint(0)
-				if channel.Weight != nil {
-					weight = *channel.Weight
-				}
-				targetChannels = append(targetChannels, channel)
-				targetWeights = append(targetWeights, weight)
+	tiers := make([]ChannelCandidateTier, 0, len(priorities))
+	for _, priority := range priorities {
+		channels := channelsByPriority[priority]
+		candidates := make([]ChannelCandidate, 0, len(channels))
+		for _, channel := range channels {
+			weight := uint(0)
+			if channel.Weight != nil {
+				weight = *channel.Weight
 			}
-		} else {
-			return nil, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", channelId)
+			candidates = append(candidates, ChannelCandidate{
+				Channel: channel,
+				Weight:  weight,
+			})
 		}
+		tiers = append(tiers, ChannelCandidateTier{Priority: priority, Candidates: candidates})
 	}
+	return tiers, nil
+}
 
-	if len(targetChannels) == 0 {
-		return nil, errors.New(fmt.Sprintf("no channel found, group: %s, model: %s, priority: %d", group, model, targetPriority))
+func PickWeightedChannelCandidate(candidates []ChannelCandidate) (ChannelCandidate, int, error) {
+	weights := make([]uint, len(candidates))
+	for index, candidate := range candidates {
+		weights[index] = candidate.Weight
 	}
+	selectedIndex, err := selectWeightedIndex(weights)
+	if err != nil {
+		return ChannelCandidate{}, -1, err
+	}
+	return candidates[selectedIndex], selectedIndex, nil
+}
 
-	selectedIndex, err := selectWeightedIndex(targetWeights)
+func GetRandomSatisfiedChannel(group string, modelName string, retry int, requestPath string) (*Channel, error) {
+	tiers, err := GetSatisfiedChannelTiers(group, modelName, requestPath)
+	if err != nil || len(tiers) == 0 {
+		return nil, err
+	}
+	if retry < 0 {
+		retry = 0
+	}
+	if retry >= len(tiers) {
+		retry = len(tiers) - 1
+	}
+	candidate, _, err := PickWeightedChannelCandidate(tiers[retry].Candidates)
 	if err != nil {
 		return nil, err
 	}
-	return targetChannels[selectedIndex], nil
+	return candidate.Channel, nil
 }
 
 // filterChannelsByRequestPathAndModel restricts candidates by request path and

@@ -1082,6 +1082,9 @@ func (channel *Channel) ValidateSettings() error {
 			return errors.New("channel test disable threshold must be a finite non-negative number")
 		}
 	}
+	if err := channelParams.ValidateAdmissionLimits(); err != nil {
+		return err
+	}
 	channelOtherSettings := &dto.ChannelOtherSettings{}
 	if channel.OtherSettings != "" {
 		err := common.UnmarshalJsonStr(channel.OtherSettings, channelOtherSettings)

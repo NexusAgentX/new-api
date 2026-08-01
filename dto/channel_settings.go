@@ -23,11 +23,19 @@ type ChannelSettings struct {
 	TestSampleTokens            *int     `json:"test_sample_tokens,omitempty"`
 	TestPrependNonce            *bool    `json:"test_prepend_nonce,omitempty"`
 	TestDisableThresholdSeconds *float64 `json:"test_disable_threshold_seconds,omitempty"`
+	// MaxConcurrency limits simultaneous in-flight relay attempts for the channel.
+	// Zero means unlimited.
+	MaxConcurrency int `json:"max_concurrency,omitempty"`
+	// RPMLimit limits relay attempts admitted in a rolling 60-second window.
+	// Zero means unlimited.
+	RPMLimit int `json:"rpm_limit,omitempty"`
 }
 
 const (
-	ChannelTestEndpointAuto    = "auto"
-	MaxChannelTestSampleTokens = 8192
+	ChannelTestEndpointAuto     = "auto"
+	MaxChannelTestSampleTokens  = 8192
+	MaxChannelConcurrencyLimit  = 1_000_000
+	MaxChannelRequestsPerMinute = 1_000_000
 )
 
 func IsSupportedChannelTestEndpointType(endpointType string) bool {
@@ -57,6 +65,19 @@ func IsChannelTestEndpointStreamIncompatible(endpointType string) bool {
 	default:
 		return false
 	}
+}
+
+func (s *ChannelSettings) ValidateAdmissionLimits() error {
+	if s == nil {
+		return nil
+	}
+	if s.MaxConcurrency < 0 || s.MaxConcurrency > MaxChannelConcurrencyLimit {
+		return fmt.Errorf("invalid max_concurrency: %d", s.MaxConcurrency)
+	}
+	if s.RPMLimit < 0 || s.RPMLimit > MaxChannelRequestsPerMinute {
+		return fmt.Errorf("invalid rpm_limit: %d", s.RPMLimit)
+	}
+	return nil
 }
 
 type VertexKeyType string

@@ -119,6 +119,8 @@ export interface ChannelSettings {
   test_sample_tokens?: number
   test_prepend_nonce?: boolean
   test_disable_threshold_seconds?: number
+  max_concurrency?: number
+  rpm_limit?: number
 }
 
 export interface ChannelOtherSettings {
