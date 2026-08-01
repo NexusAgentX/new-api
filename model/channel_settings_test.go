@@ -41,6 +41,38 @@ func TestChannelValidateSettingsRejectsInvalidHTTPTransport(t *testing.T) {
 	}
 }
 
+func TestChannelValidateSettingsAdmissionLimits(t *testing.T) {
+	tests := []struct {
+		name    string
+		setting dto.ChannelSettings
+		wantErr string
+	}{
+		{
+			name:    "channel admission limits are valid",
+			setting: dto.ChannelSettings{MaxConcurrency: 20, RPMLimit: 120},
+		},
+		{
+			name:    "negative channel admission limit rejected",
+			setting: dto.ChannelSettings{RPMLimit: -1},
+			wantErr: "rpm_limit",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			channel := &Channel{}
+			channel.SetSetting(tt.setting)
+			err := channel.ValidateSettings()
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
 func TestAdvancedCustomChannelRequiresModelListRouteOnlyWhenUpdateChecksEnabled(t *testing.T) {
 	inferenceRoute := dto.AdvancedCustomRoute{
 		IncomingPath: "/v1/chat/completions",

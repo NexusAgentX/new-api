@@ -89,7 +89,7 @@ func createChannelSelectAutoGroupsChannel(t *testing.T, db *gorm.DB, id int, gro
 	}).Error)
 }
 
-func TestCacheGetRandomSatisfiedChannelPolicyCannotExpandTokenAutoGroups(t *testing.T) {
+func TestSelectChannelWithAdmissionPolicyCannotExpandTokenAutoGroups(t *testing.T) {
 	db := setupChannelSelectAutoGroupsTest(t)
 	const modelName = "auto-groups-policy-model"
 	createChannelSelectAutoGroupsChannel(t, db, 2201, "vip", modelName)
@@ -108,7 +108,7 @@ func TestCacheGetRandomSatisfiedChannelPolicyCannotExpandTokenAutoGroups(t *test
 		},
 	})
 
-	channel, selectedGroup, err := CacheGetRandomSatisfiedChannel(&RetryParam{
+	selection, err := SelectChannelWithAdmission(&RetryParam{
 		Ctx:         ctx,
 		TokenGroup:  "auto",
 		ModelName:   modelName,
@@ -116,13 +116,12 @@ func TestCacheGetRandomSatisfiedChannelPolicyCannotExpandTokenAutoGroups(t *test
 		Retry:       common.GetPointer(0),
 	})
 
-	assert.Nil(t, channel)
-	assert.Equal(t, "auto", selectedGroup)
+	assert.Nil(t, selection)
 	assert.ErrorIs(t, err, ErrNoAutoGroupsMatchTokenPolicy)
 	assert.Empty(t, common.GetContextKeyStringSlice(ctx, constant.ContextKeyAutoGroupCandidates))
 }
 
-func TestCacheGetRandomSatisfiedChannelUsesTokenAutoGroupsWhenGlobalAutoIsEmpty(t *testing.T) {
+func TestSelectChannelWithAdmissionUsesTokenAutoGroupsWhenGlobalAutoIsEmpty(t *testing.T) {
 	db := setupChannelSelectAutoGroupsTest(t)
 	const modelName = "auto-groups-runtime-model"
 	createChannelSelectAutoGroupsChannel(t, db, 2101, "vip", modelName)
@@ -144,19 +143,21 @@ func TestCacheGetRandomSatisfiedChannelUsesTokenAutoGroupsWhenGlobalAutoIsEmpty(
 		Retry:       &retry,
 	}
 
-	first, selectedGroup, err := CacheGetRandomSatisfiedChannel(param)
+	first, err := SelectChannelWithAdmission(param)
 	require.NoError(t, err)
 	require.NotNil(t, first)
-	assert.Equal(t, 2101, first.Id)
-	assert.Equal(t, "vip", selectedGroup)
+	assert.Equal(t, 2101, first.Channel.Id)
+	assert.Equal(t, "vip", first.Group)
+	require.NoError(t, first.Lease.Release())
 	assert.Equal(t, "vip", common.GetContextKeyString(ctx, constant.ContextKeyAutoGroup))
 	assert.Empty(t, setting.GetAutoGroups(), "the selection must not depend on the global Auto list")
 
 	param.IncreaseRetry()
-	second, selectedGroup, err := CacheGetRandomSatisfiedChannel(param)
+	second, err := SelectChannelWithAdmission(param)
 	require.NoError(t, err)
 	require.NotNil(t, second)
-	assert.Equal(t, 2102, second.Id)
-	assert.Equal(t, "default", selectedGroup)
+	assert.Equal(t, 2102, second.Channel.Id)
+	assert.Equal(t, "default", second.Group)
+	require.NoError(t, second.Lease.Release())
 	assert.Equal(t, "default", common.GetContextKeyString(ctx, constant.ContextKeyAutoGroup))
 }

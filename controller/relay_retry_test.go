@@ -121,8 +121,9 @@ func TestGetChannelRefreshesTieredBillingAfterCrossGroupRetry(t *testing.T) {
 		Retry:       common.GetPointer(0),
 	}
 
-	first, firstErr := getChannel(ctx, relayInfo, retryParam)
+	first, firstLease, firstErr := getChannel(ctx, relayInfo, retryParam)
 	require.Nil(t, firstErr)
+	require.NoError(t, firstLease.Release())
 	require.Nil(t, service.PrepareTieredBillingForSelectedGroup(ctx, relayInfo))
 	require.Equal(t, 801, first.Id)
 	assert.Equal(t, "cheap", relayInfo.UsingGroup)
@@ -131,8 +132,9 @@ func TestGetChannelRefreshesTieredBillingAfterCrossGroupRetry(t *testing.T) {
 	require.NoError(t, db.Model(&model.Ability{}).Where("channel_id = ?", first.Id).Update("enabled", false).Error)
 	retryParam.SetRetry(common.RetryTimes + 1)
 
-	second, secondErr := getChannel(ctx, relayInfo, retryParam)
+	second, secondLease, secondErr := getChannel(ctx, relayInfo, retryParam)
 	require.Nil(t, secondErr)
+	require.NoError(t, secondLease.Release())
 	require.Nil(t, service.PrepareTieredBillingForSelectedGroup(ctx, relayInfo))
 	require.Equal(t, 802, second.Id)
 	assert.Equal(t, "premium", relayInfo.UsingGroup)
