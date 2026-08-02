@@ -31,7 +31,7 @@ git tag --list 'nexus-v*' --sort=-version:refname
 | Branch model | Keep `main` as a pure upstream mirror and keep Nexus changes only on `nexus` or short-lived branches based on it. | repository branch state |
 | Upstream updates | Replay the Nexus patch stack onto official `v*` release tags; never merge `nexus` into `main`. | `scripts/nexus/update-upstream.sh` |
 | Upstream notification | The scheduled check reports official release drift but never rewrites `nexus`. | `.github/workflows/nexus-upstream-check.yml` |
-| Fork validation | Nexus pushes and PRs run Go backend tests and the frontend build only in the Nexus repository. | `.github/workflows/nexus-validation.yml` |
+| Fork validation | Nexus pushes and PRs independently vet, build, and test the root and RelayKit modules, then typecheck, test, and build the frontend in the Nexus repository. | `.github/workflows/nexus-validation.yml` |
 | Image identity | Publish Nexus images to `ghcr.io/nexusagentx/new-api`, never to the official `calciumion/new-api` repository. | `.github/workflows/nexus-docker.yml` |
 | Release tags | Use `nexus-<official-release-tag>-nexus.N` and derive the image version from that tag. | `.github/workflows/nexus-docker.yml`, `scripts/nexus/README.md` |
 | Inherited publishing | Inherited Docker Hub, Release, Electron, and PR triage jobs stay inert unless running in `QuantumNous/new-api`. | upstream-owned files under `.github/workflows/` |

@@ -23,7 +23,7 @@ concurrency:
 jobs:
   prepare-release-assets:
     name: Prepare GitHub release assets
-    if: ${{ vars.GITCODE_REPOSITORY != '' }}
+    if: ${{ github.repository == 'QuantumNous/new-api' && vars.GITCODE_REPOSITORY != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     outputs:
@@ -211,7 +211,7 @@ jobs:
   gitcode-release-bootstrap:
     name: Create GitCode release
     needs: prepare-release-assets
-    if: ${{ vars.GITCODE_REPOSITORY != '' && needs.prepare-release-assets.outputs.has_bootstrap_asset == 'true' }}
+    if: ${{ github.repository == 'QuantumNous/new-api' && vars.GITCODE_REPOSITORY != '' && needs.prepare-release-assets.outputs.has_bootstrap_asset == 'true' }}
     uses: nvdacn/sync_to_gitcode/.github/workflows/CreateReleaseOnGitCode.yaml@18b70112d0e62260bc54085028e5510bbc6323b2
     with:
       artifact_name: gitcode-release-assets
@@ -229,7 +229,7 @@ jobs:
     needs:
       - prepare-release-assets
       - gitcode-release-bootstrap
-    if: ${{ always() && vars.GITCODE_REPOSITORY != '' && needs.prepare-release-assets.result == 'success' && (needs.gitcode-release-bootstrap.result == 'success' || needs.gitcode-release-bootstrap.result == 'skipped') && needs.prepare-release-assets.outputs.has_matrix_assets == 'true' }}
+    if: ${{ always() && github.repository == 'QuantumNous/new-api' && vars.GITCODE_REPOSITORY != '' && needs.prepare-release-assets.result == 'success' && (needs.gitcode-release-bootstrap.result == 'success' || needs.gitcode-release-bootstrap.result == 'skipped') && needs.prepare-release-assets.outputs.has_matrix_assets == 'true' }}
     strategy:
       fail-fast: false
       max-parallel: 4

@@ -57,19 +57,29 @@ The workflow can also be run manually from GitHub Actions.
 
 ## Validation
 
-The `Nexus validation` workflow runs the Go backend tests and builds the
-frontend for pushes and pull requests targeting `nexus`. The backend embeds
-the frontend `dist` directory, so build it before running the full Go test
-suite. Run the same checks locally before pushing when practical:
+The `Nexus validation` workflow independently vets, builds, and tests the root
+and RelayKit modules, then typechecks, tests, and builds the frontend for pushes
+and pull requests targeting `nexus`. The backend embeds the frontend `dist`
+directory, so build it before validating the root module. Run the same checks
+locally before pushing when practical:
 
 ```bash
 cd web
 bun install --frozen-lockfile
+bun run typecheck
+bun test
 DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION="$(cat ../VERSION)" \
   bun run build
 
 cd ..
-go test ./...
+GOWORK=off go vet ./...
+GOWORK=off go build ./...
+GOWORK=off go test ./...
+
+cd relaykit
+GOWORK=off go vet ./...
+GOWORK=off go build ./...
+GOWORK=off go test ./...
 ```
 
 ## Nexus Docker images

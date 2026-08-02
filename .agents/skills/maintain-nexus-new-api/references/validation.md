@@ -37,8 +37,10 @@ ask the user before starting external publishing.
 ## Workflow Evidence
 
 The `Nexus validation` workflow should pass on `nexus` after infrastructure
-changes. The `Nexus upstream check` workflow is expected to fail when a newer
-official release exists; treat that as a notification, not as a code failure.
+changes. It must independently vet, build, and test the root and RelayKit
+modules, then typecheck, test, and build the frontend. The
+`Nexus upstream check` workflow is expected to fail when a newer official
+release exists; treat that as a notification, not as a code failure.
 The `Nexus Docker image` workflow is release-scoped and should run only for an
 authorized `nexus-v*` tag.
 

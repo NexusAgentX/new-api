@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,6 +22,7 @@ import (
 	"github.com/andybalholm/brotli"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/klauspost/compress/zstd"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -336,16 +338,47 @@ func TestRawExchangeCaptureStoresDecompressedRequestAndOriginalEncoding(t *testi
 				return compressed.Bytes()
 			},
 		},
+		{
+			name:     "zstd",
+			encoding: "zstd",
+			compress: func(t *testing.T, data []byte) []byte {
+				t.Helper()
+				var compressed bytes.Buffer
+				writer, err := zstd.NewWriter(&compressed)
+				require.NoError(t, err)
+				_, err = writer.Write(data)
+				require.NoError(t, err)
+				require.NoError(t, writer.Close())
+				return compressed.Bytes()
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			db, root := setupRawExchangeMiddlewareTest(t)
 			original := []byte(`{"model":"gpt-test"}`)
+			var relayReads [][]byte
 			router := newRawExchangeTestRouter(model.RawExchangeCaptureAll, "/v1/chat/completions", func(c *gin.Context) {
+				var request struct {
+					Model string `json:"model"`
+				}
+				require.NoError(t, common.UnmarshalBodyReusable(c, &request))
+				assert.Equal(t, "gpt-test", request.Model)
+				for range 2 {
+					body, err := common.GetBodyStorage(c)
+					require.NoError(t, err)
+					data, err := io.ReadAll(body)
+					require.NoError(t, err)
+					relayReads = append(relayReads, data)
+				}
 				c.JSON(http.StatusOK, gin.H{"ok": true})
 			})
 
-			performRawExchangeRequest(t, router, "/v1/chat/completions", test.compress(t, original), test.encoding)
+			recorder := performRawExchangeRequest(t, router, "/v1/chat/completions", test.compress(t, original), test.encoding)
+			require.Equal(t, http.StatusOK, recorder.Code)
+			require.Len(t, relayReads, 2)
+			assert.Equal(t, original, relayReads[0])
+			assert.Equal(t, original, relayReads[1])
 			archive := loadSingleRawExchangeArchive(t, db)
 			assert.Equal(t, test.encoding, archive.RequestContentEncoding)
 			assert.Equal(t, original, readRawExchangePart(t, root, archive, rawExchangeRequestFileName))

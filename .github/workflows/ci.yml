@@ -14,7 +14,7 @@ concurrency:
 jobs:
   backend:
     name: Backend vet, build, and test
-    if: github.event.action != 'closed' || github.event.pull_request.merged == true
+    if: github.repository == 'QuantumNous/new-api' && (github.event.action != 'closed' || github.event.pull_request.merged == true)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -59,7 +59,7 @@ jobs:
 
   frontend:
     name: Frontend typecheck and test
-    if: github.event.action != 'closed' || github.event.pull_request.merged == true
+    if: github.repository == 'QuantumNous/new-api' && (github.event.action != 'closed' || github.event.pull_request.merged == true)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
