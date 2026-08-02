@@ -341,6 +341,8 @@ export function ModelMutateDrawer({
       'first_response_timeout_setting.disable_window_minutes': 5,
       'first_response_timeout_setting.disable_rate': 30,
       'first_response_timeout_setting.disable_min_timeout_attempts': 2,
+      'first_response_timeout_setting.failure_sample_replay_enabled': false,
+      'first_response_timeout_setting.failure_sample_max_mb': 4,
       'monitor_setting.auto_test_channel_enabled': false,
       'monitor_setting.auto_test_channel_minutes': 10,
       'monitor_setting.channel_test_mode': 'scheduled_all',

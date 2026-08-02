@@ -26,6 +26,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	hosttypes "github.com/QuantumNous/new-api/types"
@@ -54,6 +55,24 @@ type channelTestRequestOptions struct {
 	useChannelSettings   bool
 	monitorFirstResponse bool
 	nonce                string
+	failureSample        *model.ChannelFailureSample
+}
+
+var errFailureSampleNotReplayable = errors.New("channel failure sample is not replayable")
+
+func failureSampleEndpointType(relayFormat types.RelayFormat) (string, bool) {
+	switch relayFormat {
+	case types.RelayFormatOpenAI:
+		return string(constant.EndpointTypeOpenAI), true
+	case types.RelayFormatOpenAIResponses:
+		return string(constant.EndpointTypeOpenAIResponse), true
+	case types.RelayFormatClaude:
+		return string(constant.EndpointTypeAnthropic), true
+	case types.RelayFormatGemini:
+		return string(constant.EndpointTypeGemini), true
+	default:
+		return "", false
+	}
 }
 
 func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointType string) string {
@@ -276,28 +295,55 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		options = resolveChannelTestRequestOptionsFromSettings(channel, testModel, options.monitorFirstResponse)
 	}
 
+	var relayFormat types.RelayFormat
 	endpointType := normalizeChannelTestEndpoint(channel, testModel, options.endpointType)
+	requestPath := "/v1/chat/completions"
+	var inboundBody io.Reader
+	if options.failureSample != nil {
+		sample := options.failureSample
+		testModel = strings.TrimSpace(sample.Model)
+		relayFormat = types.RelayFormat(sample.RelayFormat)
+		var supported bool
+		endpointType, supported = failureSampleEndpointType(relayFormat)
+		if testModel == "" || !supported || !supportsFailureSampleRequest(relayFormat, sample.RequestPath) {
+			return testResult{localErr: errFailureSampleNotReplayable}
+		}
+		requestPath = sample.RequestPath
+		options.isStream = sample.Stream
+		options.monitorFirstResponse = sample.Stream
+		options.prependNonce = true
+		options.nonce = newChannelTestNonce()
+		replayBody, err := helper.PrependFailureSampleNonce(sample.RequestBody, relayFormat, options.nonce)
+		if err != nil {
+			return testResult{localErr: fmt.Errorf("%w: %v", errFailureSampleNotReplayable, err)}
+		}
+		inboundBody = bytes.NewReader(replayBody)
+	} else {
+		if endpointInfo, ok := common.GetDefaultEndpointInfo(constant.EndpointType(endpointType)); ok {
+			requestPath = endpointInfo.Path
+		}
+		if strings.HasPrefix(requestPath, "/v1/responses/compact") {
+			testModel = ratio_setting.WithCompactModelSuffix(testModel)
+		}
+	}
 	if dto.IsChannelTestEndpointStreamIncompatible(endpointType) {
 		options.isStream = false
 		options.monitorFirstResponse = false
 	}
 
-	requestPath := "/v1/chat/completions"
-	if endpointInfo, ok := common.GetDefaultEndpointInfo(constant.EndpointType(endpointType)); ok {
-		requestPath = endpointInfo.Path
-	}
-	if strings.HasPrefix(requestPath, "/v1/responses/compact") {
-		testModel = ratio_setting.WithCompactModelSuffix(testModel)
-	}
-
-	c.Request = httptest.NewRequestWithContext(ctx, http.MethodPost, requestPath, nil)
+	c.Request = httptest.NewRequestWithContext(ctx, http.MethodPost, requestPath, inboundBody)
 	if options.prependNonce {
-		options.nonce = newChannelTestNonce()
+		if options.nonce == "" {
+			options.nonce = newChannelTestNonce()
+		}
 		common.SetContextKey(c, constant.ContextKeyChannelTestNonce, options.nonce)
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), string(constant.ContextKeyChannelTestNonce), options.nonce))
 		defer func() {
 			redactChannelTestArtifacts(&result, w.Body, options.nonce)
 		}()
+	}
+	if options.failureSample != nil {
+		defer common.CleanupBodyStorage(c)
 	}
 
 	cache, err := model.GetUserCache(testUserID)
@@ -326,9 +372,8 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		}
 	}
 
-	// Determine relay format based on endpoint type or request path
-	var relayFormat types.RelayFormat
-	if endpointType != "" {
+	// Determine relay format based on endpoint type or request path.
+	if options.failureSample == nil && endpointType != "" {
 		// 根据指定的端点类型设置 relayFormat
 		switch constant.EndpointType(endpointType) {
 		case constant.EndpointTypeOpenAI:
@@ -350,7 +395,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		default:
 			relayFormat = types.RelayFormatOpenAI
 		}
-	} else {
+	} else if options.failureSample == nil {
 		// 根据请求路径自动检测
 		relayFormat = types.RelayFormatOpenAI
 		if c.Request.URL.Path == "/v1/embeddings" {
@@ -376,15 +421,41 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		}
 	}
 
-	request, err := buildTestRequest(testModel, endpointType, channel, options)
-	if err != nil {
-		return testResult{
-			context:     c,
-			localErr:    err,
-			newAPIError: types.NewError(err, types.ErrorCodeJsonMarshalFailed),
+	var request dto.Request
+	if options.failureSample != nil {
+		request, err = helper.GetAndValidateRequest(c, relayFormat)
+		if err != nil {
+			return testResult{
+				context:  c,
+				localErr: fmt.Errorf("%w: parse stored request: %v", errFailureSampleNotReplayable, err),
+			}
+		}
+		if responsesRequest, ok := request.(*dto.OpenAIResponsesRequest); ok {
+			channelSetting := channel.GetSetting()
+			passThrough := model_setting.GetGlobalSettings().PassThroughRequestEnabled || channelSetting.PassThroughBodyEnabled
+			attempt, attemptErr := helper.PrepareResponsesRequestAttempt(responsesRequest, channelSetting, passThrough)
+			if attemptErr != nil {
+				return testResult{
+					context:     c,
+					localErr:    attemptErr,
+					newAPIError: types.NewError(attemptErr, types.ErrorCodeConvertRequestFailed),
+				}
+			}
+			request = attempt.Request
+		}
+	} else {
+		request, err = buildTestRequest(testModel, endpointType, channel, options)
+		if err != nil {
+			return testResult{
+				context:     c,
+				localErr:    err,
+				newAPIError: types.NewError(err, types.ErrorCodeJsonMarshalFailed),
+			}
 		}
 	}
 
+	failureSamplePassThrough := options.failureSample != nil &&
+		(model_setting.GetGlobalSettings().PassThroughRequestEnabled || channel.GetSetting().PassThroughBodyEnabled)
 	info, err := relaycommon.GenRelayInfo(c, relayFormat, request, nil)
 
 	if err != nil {
@@ -472,124 +543,144 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 
 	adaptor.Init(info)
 
-	var convertedRequest any
-	// 根据 RelayMode 选择正确的转换函数
-	switch info.RelayMode {
-	case relayconstant.RelayModeEmbeddings:
-		// Embedding 请求 - request 已经是正确的类型
-		if embeddingReq, ok := request.(*dto.EmbeddingRequest); ok {
-			convertedRequest, err = adaptor.ConvertEmbeddingRequest(c, info, *embeddingReq)
-		} else {
+	var jsonData []byte
+	if failureSamplePassThrough {
+		storage, storageErr := common.GetBodyStorage(c)
+		if storageErr != nil {
 			return testResult{
 				context:     c,
-				localErr:    errors.New("invalid embedding request type"),
-				newAPIError: types.NewError(errors.New("invalid embedding request type"), types.ErrorCodeConvertRequestFailed),
+				localErr:    storageErr,
+				newAPIError: types.NewError(storageErr, types.ErrorCodeReadRequestBodyFailed),
 			}
 		}
-	case relayconstant.RelayModeImagesGenerations:
-		// 图像生成请求 - request 已经是正确的类型
-		if imageReq, ok := request.(*dto.ImageRequest); ok {
-			convertedRequest, err = adaptor.ConvertImageRequest(c, info, *imageReq)
-		} else {
-			return testResult{
-				context:     c,
-				localErr:    errors.New("invalid image request type"),
-				newAPIError: types.NewError(errors.New("invalid image request type"), types.ErrorCodeConvertRequestFailed),
-			}
-		}
-	case relayconstant.RelayModeRerank:
-		// Rerank 请求 - request 已经是正确的类型
-		if rerankReq, ok := request.(*dto.RerankRequest); ok {
-			convertedRequest, err = adaptor.ConvertRerankRequest(c, info.RelayMode, *rerankReq)
-		} else {
-			return testResult{
-				context:     c,
-				localErr:    errors.New("invalid rerank request type"),
-				newAPIError: types.NewError(errors.New("invalid rerank request type"), types.ErrorCodeConvertRequestFailed),
-			}
-		}
-	case relayconstant.RelayModeResponses:
-		// Response 请求 - request 已经是正确的类型
-		if responseReq, ok := request.(*dto.OpenAIResponsesRequest); ok {
-			convertedRequest, err = adaptor.ConvertOpenAIResponsesRequest(c, info, *responseReq)
-		} else {
-			return testResult{
-				context:     c,
-				localErr:    errors.New("invalid response request type"),
-				newAPIError: types.NewError(errors.New("invalid response request type"), types.ErrorCodeConvertRequestFailed),
-			}
-		}
-	case relayconstant.RelayModeResponsesCompact:
-		// Response compaction request - convert to OpenAIResponsesRequest before adapting
-		switch req := request.(type) {
-		case *dto.OpenAIResponsesCompactionRequest:
-			convertedRequest, err = adaptor.ConvertOpenAIResponsesRequest(c, info, dto.OpenAIResponsesRequest{
-				Model:              req.Model,
-				Input:              req.Input,
-				Instructions:       req.Instructions,
-				PreviousResponseID: req.PreviousResponseID,
-			})
-		case *dto.OpenAIResponsesRequest:
-			convertedRequest, err = adaptor.ConvertOpenAIResponsesRequest(c, info, *req)
-		default:
-			return testResult{
-				context:     c,
-				localErr:    errors.New("invalid response compaction request type"),
-				newAPIError: types.NewError(errors.New("invalid response compaction request type"), types.ErrorCodeConvertRequestFailed),
-			}
-		}
-	default:
-		// Chat/Completion 等其他请求类型
-		if generalReq, ok := request.(*dto.GeneralOpenAIRequest); ok {
-			convertedRequest, err = adaptor.ConvertOpenAIRequest(c, info, generalReq)
-		} else {
-			return testResult{
-				context:     c,
-				localErr:    errors.New("invalid general request type"),
-				newAPIError: types.NewError(errors.New("invalid general request type"), types.ErrorCodeConvertRequestFailed),
-			}
-		}
-	}
-
-	if err != nil {
-		return testResult{
-			context:     c,
-			localErr:    err,
-			newAPIError: types.NewError(err, types.ErrorCodeConvertRequestFailed),
-		}
-	}
-	jsonData, err := common.Marshal(convertedRequest)
-	if err != nil {
-		return testResult{
-			context:     c,
-			localErr:    err,
-			newAPIError: types.NewError(err, types.ErrorCodeJsonMarshalFailed),
-		}
-	}
-
-	//jsonData, err = relaycommon.RemoveDisabledFields(jsonData, info.ChannelOtherSettings)
-	//if err != nil {
-	//	return testResult{
-	//		context:     c,
-	//		localErr:    err,
-	//		newAPIError: types.NewError(err, types.ErrorCodeConvertRequestFailed),
-	//	}
-	//}
-
-	if len(info.ParamOverride) > 0 {
-		jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info)
+		jsonData, err = storage.Bytes()
 		if err != nil {
-			if fixedErr, ok := relaycommon.AsParamOverrideReturnError(err); ok {
-				return testResult{
-					context:     c,
-					localErr:    fixedErr,
-					newAPIError: relaycommon.NewAPIErrorFromParamOverride(fixedErr),
-				}
-			}
 			return testResult{
 				context:     c,
 				localErr:    err,
-				newAPIError: types.NewError(err, types.ErrorCodeChannelParamOverrideInvalid),
+				newAPIError: types.NewError(err, types.ErrorCodeReadRequestBodyFailed),
+			}
+		}
+	} else {
+		var convertedRequest any
+		// 根据 RelayMode 选择正确的转换函数
+		switch info.RelayMode {
+		case relayconstant.RelayModeEmbeddings:
+			// Embedding 请求 - request 已经是正确的类型
+			if embeddingReq, ok := request.(*dto.EmbeddingRequest); ok {
+				convertedRequest, err = adaptor.ConvertEmbeddingRequest(c, info, *embeddingReq)
+			} else {
+				return testResult{
+					context:     c,
+					localErr:    errors.New("invalid embedding request type"),
+					newAPIError: types.NewError(errors.New("invalid embedding request type"), types.ErrorCodeConvertRequestFailed),
+				}
+			}
+		case relayconstant.RelayModeImagesGenerations:
+			// 图像生成请求 - request 已经是正确的类型
+			if imageReq, ok := request.(*dto.ImageRequest); ok {
+				convertedRequest, err = adaptor.ConvertImageRequest(c, info, *imageReq)
+			} else {
+				return testResult{
+					context:     c,
+					localErr:    errors.New("invalid image request type"),
+					newAPIError: types.NewError(errors.New("invalid image request type"), types.ErrorCodeConvertRequestFailed),
+				}
+			}
+		case relayconstant.RelayModeRerank:
+			// Rerank 请求 - request 已经是正确的类型
+			if rerankReq, ok := request.(*dto.RerankRequest); ok {
+				convertedRequest, err = adaptor.ConvertRerankRequest(c, info.RelayMode, *rerankReq)
+			} else {
+				return testResult{
+					context:     c,
+					localErr:    errors.New("invalid rerank request type"),
+					newAPIError: types.NewError(errors.New("invalid rerank request type"), types.ErrorCodeConvertRequestFailed),
+				}
+			}
+		case relayconstant.RelayModeResponses:
+			// Response 请求 - request 已经是正确的类型
+			if responseReq, ok := request.(*dto.OpenAIResponsesRequest); ok {
+				convertedRequest, err = adaptor.ConvertOpenAIResponsesRequest(c, info, *responseReq)
+			} else {
+				return testResult{
+					context:     c,
+					localErr:    errors.New("invalid response request type"),
+					newAPIError: types.NewError(errors.New("invalid response request type"), types.ErrorCodeConvertRequestFailed),
+				}
+			}
+		case relayconstant.RelayModeResponsesCompact:
+			// Response compaction request - convert to OpenAIResponsesRequest before adapting
+			switch req := request.(type) {
+			case *dto.OpenAIResponsesCompactionRequest:
+				convertedRequest, err = adaptor.ConvertOpenAIResponsesRequest(c, info, dto.OpenAIResponsesRequest{
+					Model:              req.Model,
+					Input:              req.Input,
+					Instructions:       req.Instructions,
+					PreviousResponseID: req.PreviousResponseID,
+				})
+			case *dto.OpenAIResponsesRequest:
+				convertedRequest, err = adaptor.ConvertOpenAIResponsesRequest(c, info, *req)
+			default:
+				return testResult{
+					context:     c,
+					localErr:    errors.New("invalid response compaction request type"),
+					newAPIError: types.NewError(errors.New("invalid response compaction request type"), types.ErrorCodeConvertRequestFailed),
+				}
+			}
+		default:
+			// Chat/Completion 等其他请求类型
+			if generalReq, ok := request.(*dto.GeneralOpenAIRequest); ok {
+				convertedRequest, err = adaptor.ConvertOpenAIRequest(c, info, generalReq)
+			} else {
+				return testResult{
+					context:     c,
+					localErr:    errors.New("invalid general request type"),
+					newAPIError: types.NewError(errors.New("invalid general request type"), types.ErrorCodeConvertRequestFailed),
+				}
+			}
+		}
+
+		if err != nil {
+			return testResult{
+				context:     c,
+				localErr:    err,
+				newAPIError: types.NewError(err, types.ErrorCodeConvertRequestFailed),
+			}
+		}
+		jsonData, err = common.Marshal(convertedRequest)
+		if err != nil {
+			return testResult{
+				context:     c,
+				localErr:    err,
+				newAPIError: types.NewError(err, types.ErrorCodeJsonMarshalFailed),
+			}
+		}
+
+		//jsonData, err = relaycommon.RemoveDisabledFields(jsonData, info.ChannelOtherSettings)
+		//if err != nil {
+		//	return testResult{
+		//		context:     c,
+		//		localErr:    err,
+		//		newAPIError: types.NewError(err, types.ErrorCodeConvertRequestFailed),
+		//	}
+		//}
+
+		if len(info.ParamOverride) > 0 {
+			jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info)
+			if err != nil {
+				if fixedErr, ok := relaycommon.AsParamOverrideReturnError(err); ok {
+					return testResult{
+						context:     c,
+						localErr:    fixedErr,
+						newAPIError: relaycommon.NewAPIErrorFromParamOverride(fixedErr),
+					}
+				}
+				return testResult{
+					context:     c,
+					localErr:    err,
+					newAPIError: types.NewError(err, types.ErrorCodeChannelParamOverrideInvalid),
+				}
 			}
 		}
 	}
@@ -609,6 +700,15 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		httpResp = resp.(*http.Response)
 		if httpResp.StatusCode != http.StatusOK {
 			err := service.RelayErrorHandler(c.Request.Context(), httpResp, true)
+			if options.failureSample != nil {
+				replayErr := fmt.Errorf("failure sample replay returned HTTP %d", httpResp.StatusCode)
+				common.SysError(fmt.Sprintf("failure sample replay failed: channel_id=%d status=%d", channel.Id, httpResp.StatusCode))
+				return testResult{
+					context:     c,
+					localErr:    replayErr,
+					newAPIError: types.NewOpenAIError(replayErr, types.ErrorCodeBadResponse, http.StatusInternalServerError),
+				}
+			}
 			common.SysError(common.RedactExactValue(fmt.Sprintf(
 				"channel test bad response: channel_id=%d name=%s type=%d model=%s endpoint_type=%s status=%d err=%v",
 				channel.Id,
@@ -678,7 +778,11 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		Group:            info.UsingGroup,
 		Other:            other,
 	})
-	common.SysLog(fmt.Sprintf("testing channel #%d, response: \n%s", channel.Id, common.RedactExactValue(string(respBody), options.nonce)))
+	if options.failureSample != nil {
+		common.SysLog(fmt.Sprintf("failure sample replay succeeded: channel_id=%d", channel.Id))
+	} else {
+		common.SysLog(fmt.Sprintf("testing channel #%d, response: \n%s", channel.Id, common.RedactExactValue(string(respBody), options.nonce)))
+	}
 	return testResult{
 		context:     c,
 		localErr:    nil,
@@ -1276,6 +1380,27 @@ type channelTestSummary struct {
 	Enabled   int `json:"enabled"`
 }
 
+func channelFailureSampleForReplay(channel *model.Channel, recoveryEventId int64) (*model.ChannelFailureSample, bool) {
+	setting := operation_setting.GetFirstResponseTimeoutSetting()
+	if channel == nil || !setting.FailureSampleReplayEnabled || !channel.GetSetting().FailureSampleReplayEnabled || recoveryEventId <= 0 {
+		return nil, false
+	}
+	sample, err := model.GetChannelFailureSample(channel.Id)
+	if err != nil || sample == nil {
+		return nil, false
+	}
+	now := time.Now()
+	if sample.DisableEventId != recoveryEventId || sample.CapturedAt <= 0 ||
+		sample.CapturedAt < now.Add(-model.ChannelFailureSampleTTL).Unix() ||
+		sample.CapturedAt > now.Add(5*time.Minute).Unix() ||
+		sample.BodySize <= 0 || sample.BodySize != int64(len(sample.RequestBody)) ||
+		sample.BodySize > operation_setting.FailureSampleMaxBytes() ||
+		!supportsFailureSampleRequest(types.RelayFormat(sample.RelayFormat), sample.RequestPath) {
+		return nil, false
+	}
+	return sample, true
+}
+
 // performChannelTests runs the channel test loop synchronously, honoring ctx
 // cancellation so a system-task runner that loses its lease stops promptly. When
 // report is non-nil it is called after each channel with (processed, total) so
@@ -1294,6 +1419,17 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 			continue
 		}
 		isChannelEnabled := channel.Status == common.ChannelStatusEnabled
+		recoveryEventId := int64(0)
+		recoveryStateReadable := true
+		if !isChannelEnabled {
+			eventId, err := model.GetLatestChannelStatusEventId(channel.Id)
+			if err != nil {
+				recoveryStateReadable = false
+				common.SysLog(fmt.Sprintf("failed to read channel recovery state: channel_id=%d, error=%v", channel.Id, err))
+			} else {
+				recoveryEventId = eventId
+			}
+		}
 		tik := time.Now()
 		result := testChannel(ctx, channel, testUserID, "", channelTestRequestOptions{
 			useChannelSettings:   true,
@@ -1333,20 +1469,44 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 		}
 
 		// enable channel
-		if !isChannelEnabled && shouldRecoverChannelAfterTest(result, newAPIError, channel.Status) {
-			recoveryChange := model.ChannelStatusChange{
-				Source:       "scheduled_channel_test",
-				ReasonCode:   "channel_test_succeeded",
-				ReasonDetail: "Scheduled channel recovery test succeeded",
-				RequestId:    common.GetContextKeyString(result.context, common.RequestIdKey),
+		if !isChannelEnabled && recoveryStateReadable && shouldRecoverChannelAfterTest(result, newAPIError, channel.Status) {
+			recoveryVerified := true
+			if sample, replay := channelFailureSampleForReplay(channel, recoveryEventId); replay {
+				replayStarted := time.Now()
+				replayResult := testChannel(ctx, channel, testUserID, sample.Model, channelTestRequestOptions{
+					failureSample:        sample,
+					monitorFirstResponse: true,
+				})
+				replayMilliseconds := time.Since(replayStarted).Milliseconds()
+				replayError, _ := evaluateAutomaticChannelTestResult(channel, replayResult, replayMilliseconds)
+				if errors.Is(replayResult.localErr, errFailureSampleNotReplayable) {
+					// Invalid or unsupported historical data keeps the pre-existing recovery behavior.
+				} else if replayResult.localErr != nil || replayError != nil {
+					recoveryVerified = false
+					milliseconds = replayMilliseconds
+					summary.Succeeded--
+					summary.Failed++
+				} else {
+					result = replayResult
+					milliseconds = replayMilliseconds
+				}
 			}
-			if !allowDisable {
-				recoveryChange.Source = "passive_recovery_test"
-				recoveryChange.ReasonCode = "passive_recovery_succeeded"
-				recoveryChange.ReasonDetail = "Passive channel recovery test succeeded"
-			}
-			if service.EnableChannelWithEvent(channel.Id, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.Name, recoveryChange) {
-				summary.Enabled++
+			if recoveryVerified {
+				recoveryChange := model.ChannelStatusChange{
+					Source:                "scheduled_channel_test",
+					ReasonCode:            "channel_test_succeeded",
+					ReasonDetail:          "Scheduled channel recovery test succeeded",
+					RequestId:             common.GetContextKeyString(result.context, common.RequestIdKey),
+					ExpectedStatusEventId: common.GetPointer(recoveryEventId),
+				}
+				if !allowDisable {
+					recoveryChange.Source = "passive_recovery_test"
+					recoveryChange.ReasonCode = "passive_recovery_succeeded"
+					recoveryChange.ReasonDetail = "Passive channel recovery test succeeded"
+				}
+				if service.EnableChannelWithEvent(channel.Id, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.Name, recoveryChange) {
+					summary.Enabled++
+				}
 			}
 		}
 
@@ -1385,6 +1545,9 @@ func runChannelTestTask(ctx context.Context, mode string, notify bool, report fu
 	channels, err := model.GetAllChannels(0, 0, true, false)
 	if err != nil {
 		return channelTestSummary{}, err
+	}
+	if err := model.DeleteExpiredChannelFailureSamples(time.Now()); err != nil {
+		common.SysLog("failed to clean expired channel failure samples: " + err.Error())
 	}
 	if strings.TrimSpace(mode) == "" {
 		mode = operation_setting.GetMonitorSetting().ChannelTestMode

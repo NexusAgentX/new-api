@@ -798,11 +798,24 @@ func UpdateChannelStatusWithEvent(channelId int, usingKey string, status int, re
 	return changed
 }
 
+type ChannelStatusUpdateResult struct {
+	Changed             bool
+	OverallChanged      bool
+	ChannelStatusBefore int
+	ChannelStatusAfter  int
+	StatusEventId       int64
+}
+
 func UpdateChannelStatusWithEventResult(channelId int, usingKey string, status int, reason string, change ChannelStatusChange) (bool, error) {
+	result, err := UpdateChannelStatusWithEventDetailed(channelId, usingKey, status, reason, change)
+	return result.Changed, err
+}
+
+func UpdateChannelStatusWithEventDetailed(channelId int, usingKey string, status int, reason string, change ChannelStatusChange) (ChannelStatusUpdateResult, error) {
 	return updateChannelStatusWithEvent(channelId, usingKey, status, reason, change, nil)
 }
 
-func updateChannelStatusWithEvent(channelId int, usingKey string, status int, reason string, change ChannelStatusChange, expectedCurrentStatus *int) (bool, error) {
+func updateChannelStatusWithEvent(channelId int, usingKey string, status int, reason string, change ChannelStatusChange, expectedCurrentStatus *int) (ChannelStatusUpdateResult, error) {
 	channelStatusLock.Lock()
 	defer channelStatusLock.Unlock()
 
@@ -810,14 +823,28 @@ func updateChannelStatusWithEvent(channelId int, usingKey string, status int, re
 	reason = SanitizeChannelStatusReason(reason, usingKey)
 	change = NormalizeChannelStatusChange(change, reason)
 	var updatedChannel Channel
-	changed := false
-	overallChanged := false
+	result := ChannelStatusUpdateResult{}
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		if err := lockForUpdate(tx).Where("id = ?", channelId).First(&updatedChannel).Error; err != nil {
 			return err
 		}
 
 		channelStatusBefore := updatedChannel.Status
+		result.ChannelStatusBefore = channelStatusBefore
+		result.ChannelStatusAfter = channelStatusBefore
+		if change.ExpectedStatusEventId != nil {
+			var latestEvent ChannelStatusEvent
+			err := tx.Select("id").Where("channel_id = ?", channelId).Order("id DESC").First(&latestEvent).Error
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				if *change.ExpectedStatusEventId != 0 {
+					return nil
+				}
+			} else if err != nil {
+				return err
+			} else if latestEvent.Id != *change.ExpectedStatusEventId {
+				return nil
+			}
+		}
 		channelInfoBefore := updatedChannel.GetOtherInfo()
 		previousChannelReasonCode := common.Interface2String(channelInfoBefore["status_reason_code"])
 		previousChannelReasonDetail := common.Interface2String(channelInfoBefore["status_reason"])
@@ -900,7 +927,8 @@ func updateChannelStatusWithEvent(channelId int, usingKey string, status int, re
 			updatedChannel.Status = status
 		}
 
-		overallChanged = channelStatusBefore != updatedChannel.Status
+		result.OverallChanged = channelStatusBefore != updatedChannel.Status
+		result.ChannelStatusAfter = updatedChannel.Status
 		if err := tx.Model(&Channel{}).Where("id = ?", channelId).Updates(map[string]any{
 			"status":       updatedChannel.Status,
 			"other_info":   updatedChannel.OtherInfo,
@@ -927,7 +955,7 @@ func updateChannelStatusWithEvent(channelId int, usingKey string, status int, re
 			RequestId:            change.RequestId,
 			CreatedAt:            createdAt,
 		}}
-		if keyIndex != nil && overallChanged {
+		if keyIndex != nil && result.OverallChanged {
 			channelReasonCode := change.ReasonCode
 			channelReasonDetail := change.ReasonDetail
 			if updatedChannel.Status == common.ChannelStatusAutoDisabled {
@@ -955,27 +983,28 @@ func updateChannelStatusWithEvent(channelId int, usingKey string, status int, re
 		if err := tx.Create(&events).Error; err != nil {
 			return err
 		}
-		changed = true
+		result.Changed = true
+		result.StatusEventId = events[len(events)-1].Id
 		return nil
 	})
 	if err != nil {
-		return false, err
+		return ChannelStatusUpdateResult{}, err
 	}
-	if !changed {
-		return false, nil
+	if !result.Changed {
+		return result, nil
 	}
 	if common.MemoryCacheEnabled {
 		CacheUpdateChannel(&updatedChannel)
-		if overallChanged {
+		if result.OverallChanged {
 			CacheUpdateChannelStatus(channelId, updatedChannel.Status)
 		}
 	}
-	if overallChanged {
+	if result.OverallChanged {
 		if err := UpdateAbilityStatus(channelId, updatedChannel.Status == common.ChannelStatusEnabled); err != nil {
 			common.SysLog(fmt.Sprintf("failed to update ability status: channel_id=%d, error=%v", channelId, err))
 		}
 	}
-	return true, nil
+	return result, nil
 }
 
 // EnableChannelIfAutoDisabled prevents a stale recovery probe from overriding
@@ -990,12 +1019,12 @@ func EnableChannelIfAutoDisabled(channelId int, usingKey string) bool {
 
 func EnableChannelIfAutoDisabledWithEvent(channelId int, usingKey string, change ChannelStatusChange) bool {
 	expected := common.ChannelStatusAutoDisabled
-	changed, err := updateChannelStatusWithEvent(channelId, usingKey, common.ChannelStatusEnabled, change.ReasonDetail, change, &expected)
+	result, err := updateChannelStatusWithEvent(channelId, usingKey, common.ChannelStatusEnabled, change.ReasonDetail, change, &expected)
 	if err != nil {
 		common.SysLog(fmt.Sprintf("failed to conditionally enable channel: channel_id=%d, error=%v", channelId, err))
 		return false
 	}
-	return changed
+	return result.Changed
 }
 
 func EnableChannelByTag(tag string) error {

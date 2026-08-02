@@ -51,7 +51,7 @@ func setupModelListControllerTestDB(t *testing.T) *gorm.DB {
 
 	require.NoError(t, db.AutoMigrate(
 		&model.User{}, &model.Channel{}, &model.Ability{}, &model.Model{}, &model.Vendor{},
-		&model.ChannelMetric{}, &model.ChannelStatusEvent{},
+		&model.ChannelMetric{}, &model.ChannelStatusEvent{}, &model.ChannelFailureSample{},
 	))
 
 	t.Cleanup(func() {

@@ -282,11 +282,12 @@ func (ChannelStatusEvent) TableName() string {
 }
 
 type ChannelStatusChange struct {
-	Source       string
-	ReasonCode   string
-	ReasonDetail string
-	ActorUserId  int
-	RequestId    string
+	Source                string
+	ReasonCode            string
+	ReasonDetail          string
+	ActorUserId           int
+	RequestId             string
+	ExpectedStatusEventId *int64
 }
 
 func ChannelKeyFingerprint(key string) string {
@@ -330,6 +331,18 @@ func truncateChannelStatusValue(value string, maxRunes int) string {
 		return string(runes[:maxRunes])
 	}
 	return value
+}
+
+func GetLatestChannelStatusEventId(channelId int) (int64, error) {
+	var event ChannelStatusEvent
+	result := DB.Select("id").Where("channel_id = ?", channelId).Order("id DESC").Limit(1).Find(&event)
+	if result.Error != nil {
+		return 0, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return 0, nil
+	}
+	return event.Id, nil
 }
 
 func GetLatestChannelStatusEvents(channelIds []int) (map[int]ChannelStatusEvent, error) {

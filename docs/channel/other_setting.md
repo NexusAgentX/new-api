@@ -30,7 +30,12 @@
    - 类型为非负整数，`0` 或不填写表示不限
    - 多 Key 渠道的所有 Key 共享同一个渠道并发上限
 
-7. rpm_limit
+7. failure_sample_replay_enabled
+   - 配合全局故障样本重放开关，要求自动恢复前先重放该渠道最近一次真实失败请求
+   - 类型为布尔值，默认关闭；只支持 OpenAI Chat、OpenAI Responses、Claude 和 Gemini 请求
+   - 重放只在原渠道故障事件仍是当前最新状态时允许恢复；手动状态变化或新状态事件会使旧探测结果失效
+
+8. rpm_limit
    - 限制该渠道在滚动 60 秒窗口内开始的中转请求数
    - 类型为非负整数，`0` 或不填写表示不限
    - 多 Key 渠道的所有 Key 共享同一个渠道 RPM 上限
@@ -47,6 +52,7 @@
     "responses_compatibility_fix": true,
     "allow_reasoning_without_encrypted_content": false,
     "thinking_to_content": true,
+    "failure_sample_replay_enabled": true,
     "proxy": "socks5://proxy.example:1080",
     "max_concurrency": 20,
     "rpm_limit": 120
@@ -74,9 +80,17 @@
 - 启用 Redis 时，并发与 RPM 在所有实例间全局共享，并通过原子脚本同时检查和预留。未配置 Redis 时使用进程内原子限制，每个实例独立计算；Redis 运行时故障会降级到进程内模式并记录告警，此时不再保证跨实例全局上限。
 - 修改限制后，新请求立即按新值判断。降低并发上限不会中断现有请求，而是暂停该渠道的新准入，直到在途请求数回落。
 
+## 故障样本重放
+
+- 全局开关位于系统设置的渠道健康检查中：`first_response_timeout_setting.failure_sample_replay_enabled`，同时配置 `failure_sample_max_mb`（1–16 MB，默认 4 MB）。渠道设置中的 `failure_sample_replay_enabled` 也必须开启，功能才会生效。
+- 仅在真实 relay 请求达到首响应超时禁用策略并成功把渠道切换为 `auto-disabled` 时保存一个按渠道覆盖的样本；普通超时及普通上游 4xx/5xx 不写入槽位。请求正文取自 token 请求定制之后、目标渠道 attempt 兼容修复与 adaptor 转换之前的不可变基线。样本只包含脱敏边界内的请求正文、路径、协议格式、模型、流式标记、请求 ID、大小、时间和触发该次禁用的状态事件 ID；不会保存请求头、Authorization 或 API key。
+- 样本保留 24 小时，按渠道槽位覆盖，定时清理过期数据。请求正文超过上限、格式不支持、样本过期或没有可安全添加 nonce 的既有文本字段时，不保存或不重放，并沿用原有恢复检查。
+- 恢复检查会先执行现有低负载探测；样本重放使用新 nonce 和请求副本，当前渠道设置、模型映射、协议转换与参数覆盖按真实 relay 顺序执行。透传请求继续使用原始请求体，只在副本中添加 nonce；持久化样本不会被修改。
+- 样本捕获或持久化失败不会阻断原请求的重试、fallback、计费或渠道自动禁用。样本重放失败时渠道保持自动禁用。恢复启用还会校验故障状态事件版本，避免旧探测结果跨过手动操作或后续状态变化错误启用渠道。
+
 ## 升级兼容性
 
-`max_concurrency`、`rpm_limit` 和 Responses 兼容字段都直接存放在现有渠道设置 JSON 中，不需要数据库迁移。已有渠道缺省容量字段时保持不限流；缺省 `responses_compatibility_fix` 时启用修复，缺省 `allow_reasoning_without_encrypted_content` 时继续过滤无密文 reasoning。
+`max_concurrency`、`rpm_limit`、故障样本重放开关和 Responses 兼容字段都直接存放在现有渠道设置 JSON 中，不需要数据库迁移。已有渠道缺省容量字段时保持不限流；缺省 `responses_compatibility_fix` 时启用修复，缺省 `allow_reasoning_without_encrypted_content` 时继续过滤无密文 reasoning。故障样本表由数据库迁移自动创建，默认不开启采集与重放。
 
 旧版本会忽略代理地址中的 path、query 和 fragment。为避免升级后中断已有渠道流量，运行时会继续剥离这些遗留后缀，并对同一代理地址每个进程记录一次不含凭证和后缀的警告。该兼容逻辑不会改写数据库；再次保存渠道时必须按上述严格规则修正代理地址。
 

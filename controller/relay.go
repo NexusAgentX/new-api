@@ -301,8 +301,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		activeMetricAttempt = nil
 		if attemptResult.Monitored && contextErr == nil {
 			requestId := common.GetContextKeyString(c, common.RequestIdKey)
+			var failureSample *model.ChannelFailureSample
+			if attemptResult.TimedOut {
+				failureSample = buildChannelFailureSample(c, relayInfo)
+			}
 			gopool.Go(func() {
-				service.RecordFirstResponseAttempt(channelError, attemptResult.TimedOut, requestId)
+				service.RecordFirstResponseAttempt(channelError, attemptResult.TimedOut, requestId, failureSample)
 			})
 		}
 

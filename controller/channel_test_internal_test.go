@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -18,12 +20,14 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	hosttypes "github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func TestValidateChannelProxy(t *testing.T) {
@@ -705,6 +709,437 @@ func TestShouldRecoverChannelAfterTestRejectsObservedFirstResponseTimeout(t *tes
 		rateLimitError,
 		common.ChannelStatusAutoDisabled,
 	))
+}
+
+func setupFailureSampleReplayControllerTest(t *testing.T) (*model.User, *operation_setting.FirstResponseTimeoutSetting) {
+	t.Helper()
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Log{}))
+
+	originalAutomaticEnable := common.AutomaticEnableChannelEnabled
+	originalAutomaticDisable := common.AutomaticDisableChannelEnabled
+	originalMemoryCacheEnabled := common.MemoryCacheEnabled
+	originalLogConsumeEnabled := common.LogConsumeEnabled
+	originalRequestInterval := common.RequestInterval
+	originalStreamingTimeout := constant.StreamingTimeout
+	firstResponseSetting := operation_setting.GetFirstResponseTimeoutSetting()
+	originalFirstResponseSetting := *firstResponseSetting
+	globalModelSetting := model_setting.GetGlobalSettings()
+	originalPassThrough := globalModelSetting.PassThroughRequestEnabled
+	originalModelRatios := ratio_setting.ModelRatio2JSONString()
+
+	common.AutomaticEnableChannelEnabled = true
+	common.AutomaticDisableChannelEnabled = false
+	common.MemoryCacheEnabled = false
+	common.LogConsumeEnabled = true
+	common.RequestInterval = 0
+	constant.StreamingTimeout = 30
+	firstResponseSetting.DisableEnabled = false
+	firstResponseSetting.FailureSampleReplayEnabled = true
+	firstResponseSetting.FailureSampleMaxMB = 4
+	globalModelSetting.PassThroughRequestEnabled = false
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"gpt-4o-mini":1}`))
+	service.InitHttpClient()
+
+	t.Cleanup(func() {
+		common.AutomaticEnableChannelEnabled = originalAutomaticEnable
+		common.AutomaticDisableChannelEnabled = originalAutomaticDisable
+		common.MemoryCacheEnabled = originalMemoryCacheEnabled
+		common.LogConsumeEnabled = originalLogConsumeEnabled
+		common.RequestInterval = originalRequestInterval
+		constant.StreamingTimeout = originalStreamingTimeout
+		*firstResponseSetting = originalFirstResponseSetting
+		globalModelSetting.PassThroughRequestEnabled = originalPassThrough
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(originalModelRatios))
+	})
+
+	root := &model.User{
+		Username: "failure-sample-replay-root",
+		Role:     common.RoleRootUser,
+		Status:   common.UserStatusEnabled,
+		Group:    "default",
+		Quota:    1_000_000,
+	}
+	require.NoError(t, db.Create(root).Error)
+	return root, firstResponseSetting
+}
+
+func TestPerformChannelTestsRequiresFailureSampleReplayBeforeRecovery(t *testing.T) {
+	root, _ := setupFailureSampleReplayControllerTest(t)
+
+	var capturedLogs bytes.Buffer
+	common.LogWriterMu.Lock()
+	originalWriter := gin.DefaultWriter
+	originalErrorWriter := gin.DefaultErrorWriter
+	gin.DefaultWriter = &capturedLogs
+	gin.DefaultErrorWriter = &capturedLogs
+	common.LogWriterMu.Unlock()
+	t.Cleanup(func() {
+		common.LogWriterMu.Lock()
+		gin.DefaultWriter = originalWriter
+		gin.DefaultErrorWriter = originalErrorWriter
+		common.LogWriterMu.Unlock()
+	})
+
+	var mutex sync.Mutex
+	replayBodies := make([]string, 0, 2)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		responseContent := "ok"
+		if strings.Contains(string(body), "production-marker") {
+			mutex.Lock()
+			replayBodies = append(replayBodies, string(body))
+			replayNumber := len(replayBodies)
+			mutex.Unlock()
+			if replayNumber == 1 {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadGateway)
+				_, _ = io.WriteString(w, `{"error":{"message":"production-marker still failing"}}`)
+				return
+			}
+			responseContent = "production-marker echoed"
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"id":"chatcmpl_replay","object":"chat.completion","created":1,"model":"mapped-model","choices":[{"index":0,"message":{"role":"assistant","content":%q},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`, responseContent)
+	}))
+	defer upstream.Close()
+
+	stream := false
+	disableThreshold := 0.0
+	modelMapping := `{"gpt-4o-mini":"mapped-model"}`
+	paramOverride := `{"temperature":0.25}`
+	channel := &model.Channel{
+		Name:          "failure-sample-recovery-test",
+		Type:          constant.ChannelTypeOpenAI,
+		Key:           "test-key",
+		BaseURL:       common.GetPointer(upstream.URL),
+		Models:        "gpt-4o-mini",
+		ModelMapping:  &modelMapping,
+		ParamOverride: &paramOverride,
+		Group:         "default",
+		Status:        common.ChannelStatusEnabled,
+	}
+	channel.SetSetting(dto.ChannelSettings{
+		TestEndpointType:            string(constant.EndpointTypeOpenAI),
+		TestStream:                  &stream,
+		TestDisableThresholdSeconds: &disableThreshold,
+		FailureSampleReplayEnabled:  true,
+	})
+	require.NoError(t, model.DB.Create(channel).Error)
+
+	requestBody := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"production-marker"}],"temperature":0.9,"vendor_extension":{"keep":true}}`
+	disableResult, err := model.UpdateChannelStatusWithEventDetailed(channel.Id, channel.Key, common.ChannelStatusAutoDisabled, "production failure", model.ChannelStatusChange{
+		Source:       "first_response_policy",
+		ReasonCode:   "first_response_timeout_rate",
+		ReasonDetail: "production failure",
+		RequestId:    "production-request",
+	})
+	require.NoError(t, err)
+	require.True(t, disableResult.OverallChanged)
+	require.NoError(t, model.DB.Create(&model.ChannelFailureSample{
+		ChannelId:      channel.Id,
+		DisableEventId: disableResult.StatusEventId,
+		RequestBody:    []byte(requestBody),
+		RequestPath:    "/v1/chat/completions",
+		RelayFormat:    string(types.RelayFormatOpenAI),
+		Model:          "gpt-4o-mini",
+		RequestId:      "production-request",
+		CapturedAt:     time.Now().Unix(),
+		BodySize:       int64(len(requestBody)),
+	}).Error)
+	channel.Status = common.ChannelStatusAutoDisabled
+
+	firstSummary := performChannelTests(t.Context(), []*model.Channel{channel}, root.Id, false, nil)
+	assert.Equal(t, channelTestSummary{Tested: 1, Failed: 1}, firstSummary)
+	var stored model.Channel
+	require.NoError(t, model.DB.First(&stored, channel.Id).Error)
+	assert.Equal(t, common.ChannelStatusAutoDisabled, stored.Status)
+
+	secondSummary := performChannelTests(t.Context(), []*model.Channel{channel}, root.Id, false, nil)
+	assert.Equal(t, channelTestSummary{Tested: 1, Succeeded: 1, Enabled: 1}, secondSummary)
+	require.NoError(t, model.DB.First(&stored, channel.Id).Error)
+	assert.Equal(t, common.ChannelStatusEnabled, stored.Status)
+
+	mutex.Lock()
+	capturedBodies := append([]string(nil), replayBodies...)
+	mutex.Unlock()
+	require.Len(t, capturedBodies, 2)
+	firstNonce := strings.Fields(gjson.Get(capturedBodies[0], "messages.0.content").String())[0]
+	secondNonce := strings.Fields(gjson.Get(capturedBodies[1], "messages.0.content").String())[0]
+	assert.True(t, strings.HasPrefix(firstNonce, "nonce-"))
+	assert.True(t, strings.HasPrefix(secondNonce, "nonce-"))
+	assert.NotEqual(t, firstNonce, secondNonce)
+	for _, body := range capturedBodies {
+		assert.Equal(t, "mapped-model", gjson.Get(body, "model").String())
+		assert.InDelta(t, 0.25, gjson.Get(body, "temperature").Float(), 0.0001)
+		assert.Contains(t, gjson.Get(body, "messages.0.content").String(), "production-marker")
+	}
+
+	persistedSample, err := model.GetChannelFailureSample(channel.Id)
+	require.NoError(t, err)
+	assert.Equal(t, requestBody, string(persistedSample.RequestBody))
+	assert.Equal(t, disableResult.StatusEventId, persistedSample.DisableEventId)
+	assert.NotContains(t, capturedLogs.String(), "production-marker")
+}
+
+func TestFailureSampleReplayPassThroughUsesIndependentNonceCopies(t *testing.T) {
+	root, _ := setupFailureSampleReplayControllerTest(t)
+
+	var mutex sync.Mutex
+	capturedBodies := make([]string, 0, 2)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		mutex.Lock()
+		capturedBodies = append(capturedBodies, string(body))
+		mutex.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"resp_passthrough","object":"response","created_at":1,"status":"completed","model":"gpt-4o-mini","output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}`)
+	}))
+	defer upstream.Close()
+
+	modelMapping := `{"gpt-4o-mini":"mapped-model"}`
+	paramOverride := `{"temperature":0.25}`
+	channel := &model.Channel{
+		Name:          "failure-sample-passthrough-test",
+		Type:          constant.ChannelTypeOpenAI,
+		Key:           "test-key",
+		BaseURL:       common.GetPointer(upstream.URL),
+		Models:        "gpt-4o-mini",
+		ModelMapping:  &modelMapping,
+		ParamOverride: &paramOverride,
+		Group:         "default",
+		Status:        common.ChannelStatusAutoDisabled,
+	}
+	channel.SetSetting(dto.ChannelSettings{PassThroughBodyEnabled: true, FailureSampleReplayEnabled: true})
+	require.NoError(t, model.DB.Create(channel).Error)
+
+	requestBody := `{"model":"gpt-4o-mini","store":false,"input":[{"type":"reasoning","id":"bad-reasoning","summary":[]},{"type":"message","id":"bad-message","role":"user","content":[{"type":"input_text","text":"pass-through-marker"}]}],"temperature":0.9,"vendor_extension":{"keep":true}}`
+	sample := &model.ChannelFailureSample{
+		RequestBody: []byte(requestBody),
+		RequestPath: "/v1/responses",
+		RelayFormat: string(types.RelayFormatOpenAIResponses),
+		Model:       "gpt-4o-mini",
+		CapturedAt:  time.Now().Unix(),
+		BodySize:    int64(len(requestBody)),
+	}
+	for range 2 {
+		result := testChannel(t.Context(), channel, root.Id, sample.Model, channelTestRequestOptions{failureSample: sample})
+		require.NoError(t, result.localErr)
+		require.Nil(t, result.newAPIError)
+	}
+
+	mutex.Lock()
+	bodies := append([]string(nil), capturedBodies...)
+	mutex.Unlock()
+	require.Len(t, bodies, 2)
+	assert.Equal(t, requestBody, string(sample.RequestBody))
+	nonces := make([]string, 0, 2)
+	for _, body := range bodies {
+		assert.True(t, gjson.Get(body, "vendor_extension.keep").Bool())
+		assert.Equal(t, "gpt-4o-mini", gjson.Get(body, "model").String())
+		assert.InDelta(t, 0.9, gjson.Get(body, "temperature").Float(), 0.0001)
+		assert.Equal(t, int64(2), gjson.Get(body, "input.#").Int())
+		assert.Equal(t, "bad-reasoning", gjson.Get(body, "input.0.id").String())
+		assert.Equal(t, "bad-message", gjson.Get(body, "input.1.id").String())
+		content := gjson.Get(body, "input.1.content.0.text").String()
+		assert.Contains(t, content, "pass-through-marker")
+		nonces = append(nonces, strings.Fields(content)[0])
+	}
+	assert.NotEqual(t, nonces[0], nonces[1])
+}
+
+func TestFailureSampleResponsesReplayHonorsDisabledCompatibilityFix(t *testing.T) {
+	root, _ := setupFailureSampleReplayControllerTest(t)
+
+	capturedBody := make(chan string, 1)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		capturedBody <- string(body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"resp_fix_disabled","object":"response","created_at":1,"status":"completed","model":"mapped-model","output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}`)
+	}))
+	defer upstream.Close()
+
+	modelMapping := `{"gpt-4o-mini":"mapped-model"}`
+	channel := &model.Channel{
+		Name:         "failure-sample-responses-fix-disabled-test",
+		Type:         constant.ChannelTypeOpenAI,
+		Key:          "test-key",
+		BaseURL:      common.GetPointer(upstream.URL),
+		Models:       "gpt-4o-mini",
+		ModelMapping: &modelMapping,
+		Group:        "default",
+		Status:       common.ChannelStatusAutoDisabled,
+	}
+	channel.SetSetting(dto.ChannelSettings{
+		FailureSampleReplayEnabled: true,
+		ResponsesCompatibilityFix:  common.GetPointer(false),
+	})
+	require.NoError(t, model.DB.Create(channel).Error)
+
+	requestBody := `{"model":"gpt-4o-mini","store":false,"input":[{"type":"reasoning","id":"bad-reasoning","summary":[]},{"type":"message","id":"bad-message","role":"user","content":[{"type":"input_text","text":"fix-disabled-marker"}]}]}`
+	sample := &model.ChannelFailureSample{
+		RequestBody: []byte(requestBody),
+		RequestPath: "/v1/responses",
+		RelayFormat: string(types.RelayFormatOpenAIResponses),
+		Model:       "gpt-4o-mini",
+		CapturedAt:  time.Now().Unix(),
+		BodySize:    int64(len(requestBody)),
+	}
+	result := testChannel(t.Context(), channel, root.Id, sample.Model, channelTestRequestOptions{failureSample: sample})
+	require.NoError(t, result.localErr)
+	require.Nil(t, result.newAPIError)
+
+	body := <-capturedBody
+	assert.Equal(t, requestBody, string(sample.RequestBody))
+	assert.Equal(t, int64(2), gjson.Get(body, "input.#").Int())
+	assert.Equal(t, "bad-reasoning", gjson.Get(body, "input.0.id").String())
+	assert.Equal(t, "bad-message", gjson.Get(body, "input.1.id").String())
+	assert.Equal(t, "mapped-model", gjson.Get(body, "model").String())
+	assert.Contains(t, gjson.Get(body, "input.1.content.0.text").String(), "fix-disabled-marker")
+}
+
+func TestFailureSampleResponsesCompatibilityRunsBeforeParamOverride(t *testing.T) {
+	root, _ := setupFailureSampleReplayControllerTest(t)
+
+	capturedBody := make(chan string, 1)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		capturedBody <- string(body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, strings.Join([]string{
+			`data: {"type":"response.created","response":{"id":"resp_replay","status":"in_progress"}}`,
+			`data: {"type":"response.completed","response":{"id":"resp_replay","status":"completed","model":"mapped-model","output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`,
+			`data: [DONE]`,
+			``,
+		}, "\n"))
+	}))
+	defer upstream.Close()
+
+	modelMapping := `{"gpt-4o-mini":"mapped-model"}`
+	paramOverride := `{"operations":[{"path":"input.0.id","mode":"set","value":"override-after-compat"}]}`
+	channel := &model.Channel{
+		Name:          "failure-sample-responses-order-test",
+		Type:          constant.ChannelTypeOpenAI,
+		Key:           "test-key",
+		BaseURL:       common.GetPointer(upstream.URL),
+		Models:        "gpt-4o-mini",
+		ModelMapping:  &modelMapping,
+		ParamOverride: &paramOverride,
+		Group:         "default",
+		Status:        common.ChannelStatusAutoDisabled,
+	}
+	channel.SetSetting(dto.ChannelSettings{FailureSampleReplayEnabled: true})
+	require.NoError(t, model.DB.Create(channel).Error)
+
+	requestBody := `{"model":"gpt-4o-mini","store":false,"stream":true,"input":[{"type":"reasoning","id":"bad-reasoning","summary":[]},{"type":"message","id":"bad-message","role":"user","content":[{"type":"input_text","text":"responses-marker"}]}]}`
+	sample := &model.ChannelFailureSample{
+		RequestBody: []byte(requestBody),
+		RequestPath: "/v1/responses",
+		RelayFormat: string(types.RelayFormatOpenAIResponses),
+		Model:       "gpt-4o-mini",
+		Stream:      true,
+		CapturedAt:  time.Now().Unix(),
+		BodySize:    int64(len(requestBody)),
+	}
+	result := testChannel(t.Context(), channel, root.Id, sample.Model, channelTestRequestOptions{failureSample: sample})
+	require.NoError(t, result.localErr)
+	require.Nil(t, result.newAPIError)
+
+	body := <-capturedBody
+	assert.Equal(t, requestBody, string(sample.RequestBody))
+	assert.Equal(t, int64(1), gjson.Get(body, "input.#").Int())
+	assert.Equal(t, "message", gjson.Get(body, "input.0.type").String())
+	assert.Equal(t, "override-after-compat", gjson.Get(body, "input.0.id").String())
+	assert.Equal(t, "mapped-model", gjson.Get(body, "model").String())
+	assert.True(t, gjson.Get(body, "stream").Bool())
+	assert.Contains(t, gjson.Get(body, "input.0.content.0.text").String(), "responses-marker")
+}
+
+func TestFailureSampleReplayWithoutSafeTextFallsBack(t *testing.T) {
+	channel := &model.Channel{Type: constant.ChannelTypeOpenAI, Models: "gpt-4o-mini"}
+	sample := &model.ChannelFailureSample{
+		RequestBody: []byte(`{"model":"gpt-4o-mini","messages":[{"role":"tool","content":"tool result"}]}`),
+		RequestPath: "/v1/chat/completions",
+		RelayFormat: string(types.RelayFormatOpenAI),
+		Model:       "gpt-4o-mini",
+	}
+
+	result := testChannel(t.Context(), channel, 0, sample.Model, channelTestRequestOptions{failureSample: sample})
+	require.ErrorIs(t, result.localErr, errFailureSampleNotReplayable)
+}
+
+func TestChannelFailureSampleReplayFallsBackForUnavailableSamples(t *testing.T) {
+	_, firstResponseSetting := setupFailureSampleReplayControllerTest(t)
+	firstResponseSetting.FailureSampleMaxMB = 1
+
+	channel := &model.Channel{
+		Name:   "failure-sample-fallback-test",
+		Type:   constant.ChannelTypeOpenAI,
+		Key:    "test-key",
+		Models: "gpt-4o-mini",
+		Group:  "default",
+		Status: common.ChannelStatusEnabled,
+	}
+	channel.SetSetting(dto.ChannelSettings{FailureSampleReplayEnabled: true})
+	require.NoError(t, model.DB.Create(channel).Error)
+	disableResult, err := model.UpdateChannelStatusWithEventDetailed(channel.Id, channel.Key, common.ChannelStatusAutoDisabled, "failure", model.ChannelStatusChange{
+		Source: "relay_error", ReasonCode: "upstream_error", ReasonDetail: "failure",
+	})
+	require.NoError(t, err)
+	require.True(t, disableResult.OverallChanged)
+	channel.Status = common.ChannelStatusAutoDisabled
+
+	_, replay := channelFailureSampleForReplay(channel, disableResult.StatusEventId)
+	assert.False(t, replay, "a missing sample must use the existing recovery check")
+
+	validBody := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hello"}]}`
+	sample := &model.ChannelFailureSample{
+		ChannelId:      channel.Id,
+		DisableEventId: disableResult.StatusEventId,
+		RequestBody:    []byte(validBody),
+		RequestPath:    "/v1/chat/completions",
+		RelayFormat:    string(types.RelayFormatOpenAI),
+		Model:          "gpt-4o-mini",
+		CapturedAt:     time.Now().Add(-model.ChannelFailureSampleTTL - time.Second).Unix(),
+		BodySize:       int64(len(validBody)),
+	}
+	require.NoError(t, model.DB.Create(sample).Error)
+	_, replay = channelFailureSampleForReplay(channel, disableResult.StatusEventId)
+	assert.False(t, replay, "an expired sample must use the existing recovery check")
+
+	oversizedBody := strings.Repeat("x", (1<<20)+1)
+	sample.RequestBody = []byte(oversizedBody)
+	sample.BodySize = int64(len(oversizedBody))
+	sample.CapturedAt = time.Now().Unix()
+	require.NoError(t, model.DB.Save(sample).Error)
+	_, replay = channelFailureSampleForReplay(channel, disableResult.StatusEventId)
+	assert.False(t, replay, "an oversized sample must use the existing recovery check")
+
+	sample.RequestBody = []byte(validBody)
+	sample.BodySize = int64(len(validBody))
+	sample.RelayFormat = string(types.RelayFormatEmbedding)
+	require.NoError(t, model.DB.Save(sample).Error)
+	_, replay = channelFailureSampleForReplay(channel, disableResult.StatusEventId)
+	assert.False(t, replay, "an unsupported format must use the existing recovery check")
+
+	sample.RelayFormat = string(types.RelayFormatOpenAI)
+	require.NoError(t, model.DB.Save(sample).Error)
+	loaded, replay := channelFailureSampleForReplay(channel, disableResult.StatusEventId)
+	require.True(t, replay)
+	assert.Equal(t, validBody, string(loaded.RequestBody))
+
+	firstResponseSetting.FailureSampleReplayEnabled = false
+	_, replay = channelFailureSampleForReplay(channel, disableResult.StatusEventId)
+	assert.False(t, replay, "a disabled global switch must use the existing recovery check")
+	firstResponseSetting.FailureSampleReplayEnabled = true
+	channel.SetSetting(dto.ChannelSettings{FailureSampleReplayEnabled: false})
+	_, replay = channelFailureSampleForReplay(channel, disableResult.StatusEventId)
+	assert.False(t, replay, "a disabled channel switch must use the existing recovery check")
 }
 
 func TestPerformChannelTestsRecoversAfterNormalMonitoredResponsesStream(t *testing.T) {

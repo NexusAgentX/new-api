@@ -111,13 +111,14 @@ describe('channel first-response timeout form', () => {
 
   test('restores and serializes the channel test profile', () => {
     const channel = createChannel(
-      '{"test_endpoint_type":"openai-response","test_stream":true,"test_sample_tokens":2048,"test_prepend_nonce":true,"test_disable_threshold_seconds":0}'
+      '{"test_endpoint_type":"openai-response","test_stream":true,"test_sample_tokens":2048,"test_prepend_nonce":true,"failure_sample_replay_enabled":true,"test_disable_threshold_seconds":0}'
     )
     const values = transformChannelToFormDefaults(channel)
     assert.equal(values.test_endpoint_type, 'openai-response')
     assert.equal(values.test_stream, true)
     assert.equal(values.test_sample_tokens, 2048)
     assert.equal(values.test_prepend_nonce, true)
+    assert.equal(values.failure_sample_replay_enabled, true)
     assert.equal(values.test_disable_threshold_seconds, 0)
 
     const result = transformFormDataToCreatePayload({
@@ -130,6 +131,7 @@ describe('channel first-response timeout form', () => {
       test_stream: true,
       test_sample_tokens: 2048,
       test_prepend_nonce: true,
+      failure_sample_replay_enabled: true,
       test_disable_threshold_seconds: 0,
     })
     const setting = JSON.parse(String(result.channel.setting))
@@ -137,7 +139,26 @@ describe('channel first-response timeout form', () => {
     assert.equal(setting.test_stream, true)
     assert.equal(setting.test_sample_tokens, 2048)
     assert.equal(setting.test_prepend_nonce, true)
+    assert.equal(setting.failure_sample_replay_enabled, true)
     assert.equal(setting.test_disable_threshold_seconds, 0)
+  })
+
+  test('defaults failure sample replay to disabled', () => {
+    const channel = createChannel('{}')
+    const values = transformChannelToFormDefaults(channel)
+    assert.equal(values.failure_sample_replay_enabled, false)
+
+    const result = transformFormDataToCreatePayload({
+      ...CHANNEL_FORM_DEFAULT_VALUES,
+      name: 'channel',
+      key: 'key',
+      models: 'gpt-test',
+      group: ['default'],
+    })
+    assert.equal(
+      JSON.parse(String(result.channel.setting)).failure_sample_replay_enabled,
+      false
+    )
   })
 
   test('preserves an explicit disabled stream setting', () => {

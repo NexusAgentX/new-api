@@ -13,24 +13,30 @@ const (
 	MaxFirstResponseDisableWindowMinutes      = 60
 	MinFirstResponseDisableMinTimeoutAttempts = 1
 	MaxFirstResponseDisableMinTimeoutAttempts = 100
+	MinFailureSampleMaxMB                     = 1
+	MaxFailureSampleMaxMB                     = 16
 )
 
 type FirstResponseTimeoutSetting struct {
-	RetryEnabled              bool    `json:"retry_enabled"`
-	TimeoutSeconds            int     `json:"timeout_seconds"`
-	DisableEnabled            bool    `json:"disable_enabled"`
-	DisableWindowMinutes      int     `json:"disable_window_minutes"`
-	DisableRate               float64 `json:"disable_rate"`
-	DisableMinTimeoutAttempts int     `json:"disable_min_timeout_attempts"`
+	RetryEnabled               bool    `json:"retry_enabled"`
+	TimeoutSeconds             int     `json:"timeout_seconds"`
+	DisableEnabled             bool    `json:"disable_enabled"`
+	DisableWindowMinutes       int     `json:"disable_window_minutes"`
+	DisableRate                float64 `json:"disable_rate"`
+	DisableMinTimeoutAttempts  int     `json:"disable_min_timeout_attempts"`
+	FailureSampleReplayEnabled bool    `json:"failure_sample_replay_enabled"`
+	FailureSampleMaxMB         int     `json:"failure_sample_max_mb"`
 }
 
 var firstResponseTimeoutSetting = FirstResponseTimeoutSetting{
-	RetryEnabled:              false,
-	TimeoutSeconds:            20,
-	DisableEnabled:            false,
-	DisableWindowMinutes:      5,
-	DisableRate:               30,
-	DisableMinTimeoutAttempts: 2,
+	RetryEnabled:               false,
+	TimeoutSeconds:             20,
+	DisableEnabled:             false,
+	DisableWindowMinutes:       5,
+	DisableRate:                30,
+	DisableMinTimeoutAttempts:  2,
+	FailureSampleReplayEnabled: false,
+	FailureSampleMaxMB:         4,
 }
 
 func init() {
@@ -67,4 +73,19 @@ func ValidateFirstResponseDisableMinTimeoutAttempts(attempts int) error {
 		return fmt.Errorf("minimum first response timeout attempts must be between %d and %d", MinFirstResponseDisableMinTimeoutAttempts, MaxFirstResponseDisableMinTimeoutAttempts)
 	}
 	return nil
+}
+
+func ValidateFailureSampleMaxMB(sizeMB int) error {
+	if sizeMB < MinFailureSampleMaxMB || sizeMB > MaxFailureSampleMaxMB {
+		return fmt.Errorf("failure sample size must be between %d and %d MB", MinFailureSampleMaxMB, MaxFailureSampleMaxMB)
+	}
+	return nil
+}
+
+func FailureSampleMaxBytes() int64 {
+	setting := GetFirstResponseTimeoutSetting()
+	if ValidateFailureSampleMaxMB(setting.FailureSampleMaxMB) != nil {
+		return 0
+	}
+	return int64(setting.FailureSampleMaxMB) << 20
 }

@@ -89,6 +89,7 @@ describe('channel admission limit form', () => {
       test_endpoint_type: 'auto',
       test_sample_tokens: 0,
       test_prepend_nonce: false,
+      failure_sample_replay_enabled: false,
       max_concurrency: 20,
       rpm_limit: 120,
     })

@@ -32,6 +32,7 @@ const ADVANCED_SETTINGS_FIELDS = new Set<FieldPath<ChannelFormValues>>([
   'test_stream',
   'test_sample_tokens',
   'test_prepend_nonce',
+  'failure_sample_replay_enabled',
   'test_disable_threshold_seconds',
   'auto_ban',
   'tag',

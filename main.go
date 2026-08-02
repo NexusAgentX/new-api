@@ -377,6 +377,7 @@ func InitResources() error {
 	}
 
 	service.StartAuthArtifactCleanup()
+	service.StartChannelFailureSampleCleanup()
 
 	return nil
 }

@@ -251,7 +251,7 @@ func reachedFirstResponseTimeoutDisableThreshold(counts firstResponseTimeoutCoun
 	return rate >= setting.DisableRate
 }
 
-func RecordFirstResponseAttempt(channelError types.ChannelError, timedOut bool, requestId string) {
+func RecordFirstResponseAttempt(channelError types.ChannelError, timedOut bool, requestId string, failureSample *model.ChannelFailureSample) {
 	setting := operation_setting.GetFirstResponseTimeoutSetting()
 	if channelError.ChannelId <= 0 ||
 		operation_setting.ValidateFirstResponseDisableWindowMinutes(setting.DisableWindowMinutes) != nil ||
@@ -278,10 +278,10 @@ func RecordFirstResponseAttempt(channelError types.ChannelError, timedOut bool, 
 		setting.DisableWindowMinutes,
 		setting.DisableRate,
 	)
-	DisableChannelWithEvent(channelError, model.ChannelStatusChange{
+	disableChannelWithFailureSample(channelError, model.ChannelStatusChange{
 		Source:       "first_response_policy",
 		ReasonCode:   "first_response_timeout_rate",
 		ReasonDetail: reason,
 		RequestId:    requestId,
-	})
+	}, failureSample)
 }

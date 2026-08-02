@@ -122,6 +122,7 @@ export interface ChannelSettings {
   test_stream?: boolean
   test_sample_tokens?: number
   test_prepend_nonce?: boolean
+  failure_sample_replay_enabled?: boolean
   test_disable_threshold_seconds?: number
   max_concurrency?: number
   rpm_limit?: number

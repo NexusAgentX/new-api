@@ -315,6 +315,7 @@ const SENSITIVE_FORM_FIELDS = [
   'test_stream',
   'test_sample_tokens',
   'test_prepend_nonce',
+  'failure_sample_replay_enabled',
   'test_disable_threshold_seconds',
   'allow_service_tier',
   'disable_store',
@@ -787,6 +788,9 @@ export function ChannelMutateDrawer({
   const currentTestStream = form.watch('test_stream')
   const currentTestSampleTokens = form.watch('test_sample_tokens')
   const currentTestPrependNonce = form.watch('test_prepend_nonce')
+  const currentFailureSampleReplayEnabled = form.watch(
+    'failure_sample_replay_enabled'
+  )
   const currentTestDisableThresholdSeconds = form.watch(
     'test_disable_threshold_seconds'
   )
@@ -1089,6 +1093,7 @@ export function ChannelMutateDrawer({
     currentTestStream !== undefined ||
     currentTestSampleTokens ||
     currentTestPrependNonce ||
+    currentFailureSampleReplayEnabled ||
     currentTestDisableThresholdSeconds !== undefined ||
     (currentAutoBan ?? 1) !== 1
   )

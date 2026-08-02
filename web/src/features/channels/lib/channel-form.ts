@@ -303,6 +303,7 @@ export const channelFormSchema = z
       .max(8192, INVALID_TEST_SAMPLE_SIZE)
       .optional(),
     test_prepend_nonce: z.boolean().optional(),
+    failure_sample_replay_enabled: z.boolean().optional(),
     test_disable_threshold_seconds: z
       .number({ error: INVALID_TEST_DISABLE_THRESHOLD })
       .min(0, INVALID_TEST_DISABLE_THRESHOLD)
@@ -491,6 +492,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   test_stream: undefined,
   test_sample_tokens: 0,
   test_prepend_nonce: false,
+  failure_sample_replay_enabled: false,
   test_disable_threshold_seconds: undefined,
   // Type-specific settings
   is_enterprise_account: false,
@@ -541,6 +543,7 @@ export function transformChannelToFormDefaults(
     test_stream: channel.type === 57 ? true : undefined,
     test_sample_tokens: 0,
     test_prepend_nonce: false,
+    failure_sample_replay_enabled: false,
     test_disable_threshold_seconds: undefined as number | undefined,
   }
 
@@ -598,6 +601,8 @@ export function transformChannelToFormDefaults(
             ? parsed.test_sample_tokens
             : 0,
         test_prepend_nonce: parsed.test_prepend_nonce === true,
+        failure_sample_replay_enabled:
+          parsed.failure_sample_replay_enabled === true,
         test_disable_threshold_seconds:
           typeof parsed.test_disable_threshold_seconds === 'number' &&
           Number.isFinite(parsed.test_disable_threshold_seconds) &&
@@ -729,6 +734,8 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
     test_stream: formData.test_stream,
     test_sample_tokens: formData.test_sample_tokens ?? 0,
     test_prepend_nonce: formData.test_prepend_nonce === true,
+    failure_sample_replay_enabled:
+      formData.failure_sample_replay_enabled === true,
     test_disable_threshold_seconds: formData.test_disable_threshold_seconds,
   }
 

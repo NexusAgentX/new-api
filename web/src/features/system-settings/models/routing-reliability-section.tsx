@@ -82,6 +82,8 @@ const routingReliabilitySchema = z
       disable_window_minutes: z.coerce.number().int().min(1).max(60),
       disable_rate: z.coerce.number().gt(0).max(100),
       disable_min_timeout_attempts: z.coerce.number().int().min(1).max(100),
+      failure_sample_replay_enabled: z.boolean(),
+      failure_sample_max_mb: z.coerce.number().int().min(1).max(16),
     }),
     monitor_setting: z.object({
       auto_test_channel_enabled: z.boolean(),
@@ -138,6 +140,8 @@ type RoutingReliabilitySectionProps = {
     'first_response_timeout_setting.disable_window_minutes': number
     'first_response_timeout_setting.disable_rate': number
     'first_response_timeout_setting.disable_min_timeout_attempts': number
+    'first_response_timeout_setting.failure_sample_replay_enabled': boolean
+    'first_response_timeout_setting.failure_sample_max_mb': number
     'monitor_setting.auto_test_channel_enabled': boolean
     'monitor_setting.auto_test_channel_minutes': number
     'monitor_setting.channel_test_mode': ChannelTestMode
@@ -162,6 +166,8 @@ type NormalizedRoutingReliabilityValues = {
   'first_response_timeout_setting.disable_window_minutes': number
   'first_response_timeout_setting.disable_rate': number
   'first_response_timeout_setting.disable_min_timeout_attempts': number
+  'first_response_timeout_setting.failure_sample_replay_enabled': boolean
+  'first_response_timeout_setting.failure_sample_max_mb': number
   'monitor_setting.auto_test_channel_enabled': boolean
   'monitor_setting.auto_test_channel_minutes': number
   'monitor_setting.channel_test_mode': ChannelTestMode
@@ -196,6 +202,12 @@ const buildFormDefaults = (
     disable_min_timeout_attempts:
       defaults['first_response_timeout_setting.disable_min_timeout_attempts'] ??
       2,
+    failure_sample_replay_enabled:
+      defaults[
+        'first_response_timeout_setting.failure_sample_replay_enabled'
+      ] ?? false,
+    failure_sample_max_mb:
+      defaults['first_response_timeout_setting.failure_sample_max_mb'] ?? 4,
   },
   monitor_setting: {
     auto_test_channel_enabled:
@@ -237,6 +249,11 @@ const normalizeDefaults = (
   'first_response_timeout_setting.disable_min_timeout_attempts':
     defaults['first_response_timeout_setting.disable_min_timeout_attempts'] ??
     2,
+  'first_response_timeout_setting.failure_sample_replay_enabled':
+    defaults['first_response_timeout_setting.failure_sample_replay_enabled'] ??
+    false,
+  'first_response_timeout_setting.failure_sample_max_mb':
+    defaults['first_response_timeout_setting.failure_sample_max_mb'] ?? 4,
   'monitor_setting.auto_test_channel_enabled':
     defaults['monitor_setting.auto_test_channel_enabled'],
   'monitor_setting.auto_test_channel_minutes':
@@ -274,6 +291,10 @@ const normalizeFormValues = (
     values.first_response_timeout_setting.disable_rate,
   'first_response_timeout_setting.disable_min_timeout_attempts':
     values.first_response_timeout_setting.disable_min_timeout_attempts,
+  'first_response_timeout_setting.failure_sample_replay_enabled':
+    values.first_response_timeout_setting.failure_sample_replay_enabled,
+  'first_response_timeout_setting.failure_sample_max_mb':
+    values.first_response_timeout_setting.failure_sample_max_mb,
   'monitor_setting.auto_test_channel_enabled':
     values.monitor_setting.auto_test_channel_enabled,
   'monitor_setting.auto_test_channel_minutes':
@@ -582,6 +603,56 @@ export function RoutingReliabilitySection({
                       />
                     </FormControl>
                   </SettingsSwitchItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='first_response_timeout_setting.failure_sample_replay_enabled'
+                render={({ field }) => (
+                  <SettingsSwitchItem>
+                    <SettingsSwitchContent>
+                      <FormLabel>
+                        {t('Replay real failure before recovery')}
+                      </FormLabel>
+                      <FormDescription>
+                        {t(
+                          'Require a replay of the captured request before re-enabling auto-disabled channels.'
+                        )}
+                      </FormDescription>
+                    </SettingsSwitchContent>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </SettingsSwitchItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='first_response_timeout_setting.failure_sample_max_mb'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Failure sample size limit (MB)')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min={1}
+                        max={16}
+                        step={1}
+                        {...safeNumberFieldProps(field)}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Requests larger than this limit use the existing recovery check and are not stored.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
                 )}
               />
             </div>

@@ -212,6 +212,13 @@ func validateOptionValue(key string, value string) error {
 	if key == "MaxTokenAutoGroups" {
 		return setting.ValidateMaxTokenAutoGroups(value)
 	}
+	if key == "first_response_timeout_setting.failure_sample_max_mb" {
+		sizeMB, err := strconv.Atoi(strings.TrimSpace(value))
+		if err != nil {
+			return err
+		}
+		return operation_setting.ValidateFailureSampleMaxMB(sizeMB)
+	}
 	return nil
 }
 

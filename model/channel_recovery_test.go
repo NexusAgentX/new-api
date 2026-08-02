@@ -9,6 +9,43 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestRecoveryEnableRejectsAnOlderStatusEvent(t *testing.T) {
+	truncateTables(t)
+	originalMemoryCacheEnabled := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = false
+	t.Cleanup(func() { common.MemoryCacheEnabled = originalMemoryCacheEnabled })
+
+	channel := &Channel{
+		Name:   "failure-sample-stale-recovery-test",
+		Key:    "test-key",
+		Models: "gpt-test",
+		Group:  "default",
+		Status: common.ChannelStatusEnabled,
+	}
+	require.NoError(t, DB.Create(channel).Error)
+	first, err := UpdateChannelStatusWithEventDetailed(channel.Id, "test-key", common.ChannelStatusAutoDisabled, "first failure", ChannelStatusChange{
+		Source: "relay_error", ReasonCode: "first_failure", ReasonDetail: "first failure",
+	})
+	require.NoError(t, err)
+	require.True(t, first.OverallChanged)
+	require.True(t, EnableChannelIfAutoDisabledWithEvent(channel.Id, "test-key", ChannelStatusChange{
+		Source: "manual", ReasonCode: "manual_enable", ReasonDetail: "manual enable",
+	}))
+	second, err := UpdateChannelStatusWithEventDetailed(channel.Id, "test-key", common.ChannelStatusAutoDisabled, "second failure", ChannelStatusChange{
+		Source: "relay_error", ReasonCode: "second_failure", ReasonDetail: "second failure",
+	})
+	require.NoError(t, err)
+	require.True(t, second.OverallChanged)
+
+	assert.False(t, EnableChannelIfAutoDisabledWithEvent(channel.Id, "test-key", ChannelStatusChange{
+		Source: "recovery", ReasonCode: "recovery_succeeded", ReasonDetail: "old probe succeeded",
+		ExpectedStatusEventId: common.GetPointer(first.StatusEventId),
+	}))
+	var stored Channel
+	require.NoError(t, DB.First(&stored, channel.Id).Error)
+	assert.Equal(t, common.ChannelStatusAutoDisabled, stored.Status)
+}
+
 func TestEnableChannelIfAutoDisabledRequiresCurrentAutoDisabledStatus(t *testing.T) {
 	truncateTables(t)
 	originalMemoryCacheEnabled := common.MemoryCacheEnabled

@@ -57,6 +57,7 @@ func TestMain(m *testing.M) {
 		&PerfMetric{},
 		&ChannelMetric{},
 		&ChannelStatusEvent{},
+		&ChannelFailureSample{},
 		&SystemInstance{},
 		&SystemTask{},
 		&SystemTaskLock{},
@@ -92,6 +93,7 @@ func truncateTables(t *testing.T) {
 		DB.Exec("DELETE FROM perf_metrics")
 		DB.Exec("DELETE FROM channel_metrics")
 		DB.Exec("DELETE FROM channel_status_events")
+		DB.Exec("DELETE FROM channel_failure_samples")
 		DB.Exec("DELETE FROM system_instances")
 		DB.Exec("DELETE FROM system_task_locks")
 		DB.Exec("DELETE FROM system_tasks")

@@ -230,6 +230,35 @@ export function ChannelTestSettingsFields(
 
       <FormField
         control={props.form.control}
+        name='failure_sample_replay_enabled'
+        render={({ field }) => (
+          <FormItem
+            className='flex items-center justify-between'
+            data-disabled={props.sensitiveLocked || undefined}
+          >
+            <div className='space-y-0.5'>
+              <FormLabel>
+                {t('Replay failure sample before recovery')}
+              </FormLabel>
+              <FormDescription>
+                {t(
+                  'Require a fresh replay of the last real failure before automatically re-enabling this channel.'
+                )}
+              </FormDescription>
+            </div>
+            <FormControl>
+              <Switch
+                checked={field.value === true}
+                disabled={props.sensitiveLocked}
+                onCheckedChange={field.onChange}
+              />
+            </FormControl>
+          </FormItem>
+        )}
+      />
+
+      <FormField
+        control={props.form.control}
         name='test_disable_threshold_seconds'
         render={({ field }) => (
           <FormItem

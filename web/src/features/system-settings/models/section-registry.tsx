@@ -93,6 +93,12 @@ const MODELS_SECTIONS = [
             settings[
               'first_response_timeout_setting.disable_min_timeout_attempts'
             ],
+          'first_response_timeout_setting.failure_sample_replay_enabled':
+            settings[
+              'first_response_timeout_setting.failure_sample_replay_enabled'
+            ],
+          'first_response_timeout_setting.failure_sample_max_mb':
+            settings['first_response_timeout_setting.failure_sample_max_mb'],
           'monitor_setting.auto_test_channel_enabled':
             settings['monitor_setting.auto_test_channel_enabled'],
           'monitor_setting.auto_test_channel_minutes':

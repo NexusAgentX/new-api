@@ -24,6 +24,7 @@ type ChannelSettings struct {
 	TestStream                            *bool    `json:"test_stream,omitempty"`
 	TestSampleTokens                      *int     `json:"test_sample_tokens,omitempty"`
 	TestPrependNonce                      *bool    `json:"test_prepend_nonce,omitempty"`
+	FailureSampleReplayEnabled            bool     `json:"failure_sample_replay_enabled,omitempty"`
 	TestDisableThresholdSeconds           *float64 `json:"test_disable_threshold_seconds,omitempty"`
 	// HTTPProtocol controls outbound HTTP version negotiation for this channel.
 	// Accepted values: "", "auto" (default), "http1".

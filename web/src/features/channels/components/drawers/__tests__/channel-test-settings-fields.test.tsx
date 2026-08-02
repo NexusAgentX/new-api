@@ -208,11 +208,21 @@ describe('channel test settings fields', () => {
       numberInputs.every((input) => !input.disabled),
       true
     )
-    assert.equal(switches.length, 2)
+    assert.equal(switches.length, 3)
     assert.equal(
       switches.every((control) => !control.hasAttribute('data-disabled')),
       true
     )
+    const replayLabel = [...rendered.container.querySelectorAll('label')].find(
+      (element) =>
+        element.textContent === 'Replay failure sample before recovery'
+    )
+    assert.ok(replayLabel)
+    const replaySwitch = replayLabel
+      .closest<HTMLElement>('[data-slot="form-item"]')
+      ?.querySelector<HTMLElement>('[role="switch"]')
+    assert.ok(replaySwitch)
+    assert.equal(replaySwitch.getAttribute('aria-checked'), 'false')
     assert.equal(streamControl.input.disabled, false)
     assert.equal(streamControl.root.getAttribute('aria-checked'), 'true')
     assert.equal(streamControl.root.hasAttribute('data-disabled'), false)
@@ -247,7 +257,7 @@ describe('channel test settings fields', () => {
       numberInputs.every((input) => input.disabled),
       true
     )
-    assert.equal(switches.length, 2)
+    assert.equal(switches.length, 3)
     assert.equal(
       switches.every((control) => control.hasAttribute('data-disabled')),
       true

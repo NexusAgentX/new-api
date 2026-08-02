@@ -25,6 +25,10 @@ func DisableChannel(channelError types.ChannelError, reason string) {
 }
 
 func DisableChannelWithEvent(channelError types.ChannelError, change model.ChannelStatusChange) {
+	disableChannelWithFailureSample(channelError, change, nil)
+}
+
+func disableChannelWithFailureSample(channelError types.ChannelError, change model.ChannelStatusChange, sample *model.ChannelFailureSample) {
 	change.ReasonDetail = model.SanitizeChannelStatusReason(change.ReasonDetail, channelError.UsingKey)
 	common.SysLog(fmt.Sprintf("通道「%s」（#%d）发生错误，准备禁用，原因：%s", channelError.ChannelName, channelError.ChannelId, common.LocalLogPreview(change.ReasonDetail)))
 
@@ -33,8 +37,20 @@ func DisableChannelWithEvent(channelError types.ChannelError, change model.Chann
 		return
 	}
 
-	success := model.UpdateChannelStatusWithEvent(channelError.ChannelId, channelError.UsingKey, common.ChannelStatusAutoDisabled, change.ReasonDetail, change)
-	if success {
+	result, err := model.UpdateChannelStatusWithEventDetailed(channelError.ChannelId, channelError.UsingKey, common.ChannelStatusAutoDisabled, change.ReasonDetail, change)
+	if err != nil {
+		common.SysLog(fmt.Sprintf("failed to update channel status with event: channel_id=%d, status=%d, error=%v", channelError.ChannelId, common.ChannelStatusAutoDisabled, err))
+		return
+	}
+	if sample != nil && result.OverallChanged && result.ChannelStatusAfter == common.ChannelStatusAutoDisabled {
+		storedSample := *sample
+		storedSample.ChannelId = channelError.ChannelId
+		storedSample.DisableEventId = result.StatusEventId
+		if _, err := model.SaveChannelFailureSampleIfCurrent(&storedSample); err != nil {
+			common.SysLog(fmt.Sprintf("failed to save channel failure sample: channel_id=%d, error=%v", channelError.ChannelId, err))
+		}
+	}
+	if result.Changed {
 		subject := fmt.Sprintf("通道「%s」（#%d）已被禁用", channelError.ChannelName, channelError.ChannelId)
 		content := fmt.Sprintf("通道「%s」（#%d）已被禁用，原因：%s", channelError.ChannelName, channelError.ChannelId, change.ReasonDetail)
 		NotifyRootUser(formatNotifyType(channelError.ChannelId, common.ChannelStatusAutoDisabled), subject, content)
