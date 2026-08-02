@@ -132,6 +132,13 @@ func AppendRequestDegradationInfo(relayInfo *relaycommon.RelayInfo, other map[st
 	other["request_degradation"] = degradation
 }
 
+func AppendResponsesCompatibilityInfo(relayInfo *relaycommon.RelayInfo, other map[string]interface{}) {
+	if relayInfo == nil || other == nil || !relayInfo.ResponsesCompatibility.Applied() {
+		return
+	}
+	other["responses_compatibility"] = relayInfo.ResponsesCompatibility
+}
+
 func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, modelRatio, groupRatio, completionRatio float64,
 	cacheTokens int, cacheRatio float64, modelPrice float64, userGroupRatio float64) map[string]interface{} {
 	other := make(map[string]interface{})
@@ -179,6 +186,7 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	appendBillingInfo(relayInfo, other)
 	appendParamOverrideInfo(relayInfo, other)
 	appendStreamStatus(relayInfo, other)
+	AppendResponsesCompatibilityInfo(relayInfo, other)
 	AppendRequestDegradationInfo(relayInfo, other)
 	return other
 }

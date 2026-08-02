@@ -66,6 +66,10 @@ func TestProcessChannelErrorRecordsRequestDegradation(t *testing.T) {
 			Reason:                hosttypes.RequestDegradationReasonNonReplayableReasoning,
 			DroppedReasoningItems: 4,
 		},
+		ResponsesCompatibility: &hosttypes.ResponsesCompatibility{
+			DroppedNonReplayableReasoningItems: 4,
+			NormalizedRequestItemIDs:           2,
+		},
 	}
 	apiErr := relaytypes.NewErrorWithStatusCode(
 		errors.New("upstream failed"),
@@ -88,4 +92,9 @@ func TestProcessChannelErrorRecordsRequestDegradation(t *testing.T) {
 	assert.Equal(t, true, degradation["applied"])
 	assert.Equal(t, hosttypes.RequestDegradationReasonNonReplayableReasoning, degradation["reason"])
 	assert.Equal(t, float64(4), degradation["dropped_reasoning_items"])
+	compatibility, ok := other["responses_compatibility"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, float64(4), compatibility["dropped_non_replayable_reasoning_items"])
+	assert.Equal(t, float64(2), compatibility["normalized_request_item_ids"])
+	assert.Equal(t, float64(0), compatibility["normalized_response_item_ids"])
 }

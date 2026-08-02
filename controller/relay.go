@@ -26,8 +26,8 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
-	hosttypes "github.com/QuantumNous/new-api/types"
 
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/samber/lo"
@@ -130,20 +130,13 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		return
 	}
 
-	var requestDegradation *hosttypes.RequestDegradation
+	var responsesRequestBaseline *dto.OpenAIResponsesRequest
 	if relayFormat == types.RelayFormatOpenAIResponses {
-		responsesRequest, ok := request.(*dto.OpenAIResponsesRequest)
+		var ok bool
+		responsesRequestBaseline, ok = request.(*dto.OpenAIResponsesRequest)
 		if !ok {
 			newAPIError = types.NewError(errors.New("request is not an OpenAIResponsesRequest"), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
 			return
-		}
-		requestDegradation, err = helper.SanitizeResponsesRequest(c, responsesRequest)
-		if err != nil {
-			newAPIError = types.NewError(fmt.Errorf("sanitize responses request: %w", err), types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
-			return
-		}
-		if requestDegradation != nil {
-			logger.LogWarn(c, fmt.Sprintf("request degraded: reason=%s dropped_reasoning_items=%d", requestDegradation.Reason, requestDegradation.DroppedReasoningItems))
 		}
 	}
 
@@ -152,7 +145,6 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		newAPIError = types.NewError(err, types.ErrorCodeGenRelayInfoFailed)
 		return
 	}
-	relayInfo.RequestDegradation = requestDegradation
 	service.AttachRawExchangeRelayInfo(c, relayInfo)
 
 	needSensitiveCheck := setting.ShouldCheckPromptSensitive()
@@ -240,6 +232,25 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 		activeAdmissionLease = admissionLease
 		addUsedChannel(c, channel.Id)
+		if responsesRequestBaseline != nil {
+			channelSetting, _ := common.GetContextKeyType[dto.ChannelSettings](c, constant.ContextKeyChannelSetting)
+			passThrough := model_setting.GetGlobalSettings().PassThroughRequestEnabled || channelSetting.PassThroughBodyEnabled
+			attempt, attemptErr := helper.PrepareResponsesRequestAttempt(responsesRequestBaseline, channelSetting, passThrough)
+			if attemptErr != nil {
+				newAPIError = types.NewError(fmt.Errorf("prepare responses request attempt: %w", attemptErr), types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+				break
+			}
+			relayInfo.Request = attempt.Request
+			relayInfo.RecordResponsesRequestCompatibility(attempt.Compatibility, attempt.Degradation)
+			if attempt.Compatibility != nil && attempt.Compatibility.Applied() {
+				logger.LogWarn(c, fmt.Sprintf(
+					"responses compatibility applied: retry_index=%d dropped_reasoning_items=%d normalized_request_item_ids=%d",
+					relayInfo.RetryIndex,
+					attempt.Compatibility.DroppedNonReplayableReasoningItems,
+					attempt.Compatibility.NormalizedRequestItemIDs,
+				))
+			}
+		}
 		if billingErr := service.PrepareTieredBillingForSelectedGroup(c, relayInfo); billingErr != nil {
 			newAPIError = billingErr
 			break
@@ -657,6 +668,7 @@ func processChannelErrorWithStatusChange(c *gin.Context, relayInfo *relaycommon.
 		service.AppendChannelAffinityAdminInfo(c, adminInfo)
 		other["admin_info"] = adminInfo
 		service.AppendRequestCustomizationInfo(c, nil, other)
+		service.AppendResponsesCompatibilityInfo(relayInfo, other)
 		service.AppendRequestDegradationInfo(relayInfo, other)
 		startTime := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)
 		if startTime.IsZero() {

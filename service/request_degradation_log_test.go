@@ -24,6 +24,11 @@ func TestGenerateTextOtherInfoRecordsRequestDegradationAtTopLevel(t *testing.T) 
 			Reason:                types.RequestDegradationReasonNonReplayableReasoning,
 			DroppedReasoningItems: 4,
 		},
+		ResponsesCompatibility: &types.ResponsesCompatibility{
+			DroppedNonReplayableReasoningItems: 4,
+			NormalizedRequestItemIDs:           2,
+			NormalizedResponseItemIDs:          3,
+		},
 	}
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
 	ctx.Request = httptest.NewRequest("POST", "/v1/responses", nil)
@@ -39,9 +44,25 @@ func TestGenerateTextOtherInfoRecordsRequestDegradationAtTopLevel(t *testing.T) 
 	assert.Equal(t, true, degradation["applied"])
 	assert.Equal(t, types.RequestDegradationReasonNonReplayableReasoning, degradation["reason"])
 	assert.Equal(t, float64(4), degradation["dropped_reasoning_items"])
+	compatibility, ok := decoded["responses_compatibility"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, float64(4), compatibility["dropped_non_replayable_reasoning_items"])
+	assert.Equal(t, float64(2), compatibility["normalized_request_item_ids"])
+	assert.Equal(t, float64(3), compatibility["normalized_response_item_ids"])
+	assert.Len(t, compatibility, 3)
+
 	adminInfo, ok := decoded["admin_info"].(map[string]any)
 	require.True(t, ok)
 	assert.NotContains(t, adminInfo, "request_degradation")
+	assert.NotContains(t, adminInfo, "responses_compatibility")
+}
+
+func TestAppendResponsesCompatibilityInfoOmitsEmptyMetadata(t *testing.T) {
+	for _, compatibility := range []*types.ResponsesCompatibility{nil, {}} {
+		other := map[string]any{}
+		AppendResponsesCompatibilityInfo(&relaycommon.RelayInfo{ResponsesCompatibility: compatibility}, other)
+		assert.NotContains(t, other, "responses_compatibility")
+	}
 }
 
 func TestAppendRequestDegradationInfoOmitsUnappliedMetadata(t *testing.T) {

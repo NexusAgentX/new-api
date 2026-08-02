@@ -3,25 +3,34 @@
 该配置用于设置一些额外的渠道参数，可以通过 JSON 对象进行配置。常用设置项包括：
 
 1. force_format
-    - 用于标识是否对数据进行强制格式化为 OpenAI 格式
+    - 仅用于重新格式化 OpenAI 渠道的 Chat Completions 响应，不处理原生 `/v1/responses`
     - 类型为布尔值，设置为 true 时启用强制格式化
 
-2. proxy
+2. responses_compatibility_fix
+    - 用于修复原生 `/v1/responses` 的非标准 Item ID，并保护显式 `store:false` 历史的跨渠道重放
+    - 类型为布尔值；不填写时默认启用，显式设置为 `false` 时同时关闭请求侧和响应侧兼容修复
+
+3. allow_reasoning_without_encrypted_content
+    - 控制显式 `store:false` 请求是否保留缺少可用 `encrypted_content` 的 reasoning item
+    - 类型为布尔值；不填写时默认关闭，仅在确认目标上游接受 summary-only reasoning 重放后开启
+    - 该字段只影响 reasoning 删除策略，不会关闭 Item ID 修复；`responses_compatibility_fix=false` 时不生效
+
+4. proxy
     - 用于配置网络代理
     - 类型为字符串，支持 `http`、`https`、`socks5` 和 `socks5h` 协议
     - 保存时必须包含协议和主机；仅允许空路径或根路径 `/`，不允许 query 或 fragment
     - SOCKS 代理未填写端口时，运行时使用默认端口 `1080`
 
-3. thinking_to_content
+5. thinking_to_content
    - 用于标识是否将思考内容`reasoning_content`转换为`<think>`标签拼接到内容中返回
    - 类型为布尔值，设置为 true 时启用思考内容转换
 
-4. max_concurrency
+6. max_concurrency
    - 限制该渠道同时在途的中转请求数
    - 类型为非负整数，`0` 或不填写表示不限
    - 多 Key 渠道的所有 Key 共享同一个渠道并发上限
 
-5. rpm_limit
+7. rpm_limit
    - 限制该渠道在滚动 60 秒窗口内开始的中转请求数
    - 类型为非负整数，`0` 或不填写表示不限
    - 多 Key 渠道的所有 Key 共享同一个渠道 RPM 上限
@@ -35,6 +44,8 @@
 ```json
 {
     "force_format": true,
+    "responses_compatibility_fix": true,
+    "allow_reasoning_without_encrypted_content": false,
     "thinking_to_content": true,
     "proxy": "socks5://proxy.example:1080",
     "max_concurrency": 20,
@@ -45,6 +56,13 @@
 --------------------------------------------------------------
 
 通过调整上述 JSON 配置中的值，可以灵活控制渠道的额外行为，比如是否进行格式化、使用特定网络代理，以及限制渠道容量。
+
+## Responses 兼容处理顺序
+
+- 每次 relay attempt 在选中目标渠道后，都从不可变的原始 Responses 请求生成独立副本，再读取该渠道当前的兼容设置。一个 attempt 的 reasoning 删除或 Item ID 修复不会污染后续重试。
+- 对显式 `store:false` 且数组形式 `input` 的请求，兼容修复先按渠道策略删除或保留无密文 reasoning，再规范化 `function_call`、`message` 和保留的 `reasoning` Item ID。随后才执行协议转换、模型映射和 `param_override`。
+- `pass_through_body_enabled=true` 或全局请求体透传开启时，请求体继续原样转发，不执行请求侧兼容修复；渠道响应侧 Item ID 规范化仍由 `responses_compatibility_fix` 独立控制。
+- 原生 Responses JSON 和 SSE 响应会在发送客户端前统一规范化 output item 及其 `item_id` 引用。处理保留未知扩展字段、合法 ID 和 `call_id`，且不会伪造 `reasoning.encrypted_content`。
 
 ## 渠道容量限制语义
 
@@ -58,7 +76,7 @@
 
 ## 升级兼容性
 
-`max_concurrency` 和 `rpm_limit` 直接存放在现有渠道设置 JSON 中，不需要数据库迁移。已有渠道缺省这两个字段时保持不限流，因此升级本身不会改变现有路由行为。
+`max_concurrency`、`rpm_limit` 和 Responses 兼容字段都直接存放在现有渠道设置 JSON 中，不需要数据库迁移。已有渠道缺省容量字段时保持不限流；缺省 `responses_compatibility_fix` 时启用修复，缺省 `allow_reasoning_without_encrypted_content` 时继续过滤无密文 reasoning。
 
 旧版本会忽略代理地址中的 path、query 和 fragment。为避免升级后中断已有渠道流量，运行时会继续剥离这些遗留后缀，并对同一代理地址每个进程记录一次不含凭证和后缀的警告。该兼容逻辑不会改写数据库；再次保存渠道时必须按上述严格规则修正代理地址。
 

@@ -118,8 +118,15 @@ export interface RequestDegradationInfo {
   dropped_reasoning_items: number
 }
 
+export interface ResponsesCompatibilityInfo {
+  dropped_non_replayable_reasoning_items: number
+  normalized_request_item_ids: number
+  normalized_response_item_ids: number
+}
+
 export interface LogOtherData {
   request_degradation?: RequestDegradationInfo
+  responses_compatibility?: ResponsesCompatibilityInfo
   admin_info?: {
     is_multi_key?: boolean
     multi_key_index?: number

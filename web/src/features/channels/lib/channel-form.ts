@@ -267,6 +267,8 @@ export const channelFormSchema = z
     key_mode: z.enum(['append', 'replace']).optional(), // For editing multi-key channels
     // Channel extra settings (stored in setting JSON, not sent directly)
     force_format: z.boolean().optional(),
+    responses_compatibility_fix: z.boolean().optional(),
+    allow_reasoning_without_encrypted_content: z.boolean().optional(),
     thinking_to_content: z.boolean().optional(),
     proxy: z
       .string()
@@ -473,6 +475,8 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   key_mode: 'append',
   // Channel extra settings
   force_format: false,
+  responses_compatibility_fix: true,
+  allow_reasoning_without_encrypted_content: false,
   thinking_to_content: false,
   proxy: '',
   http_protocol: HTTP_PROTOCOL_AUTO,
@@ -521,6 +525,8 @@ export function transformChannelToFormDefaults(
   // Parse channel extra settings from setting field
   let extraSettings = {
     force_format: false,
+    responses_compatibility_fix: true,
+    allow_reasoning_without_encrypted_content: false,
     thinking_to_content: false,
     proxy: '',
     http_protocol: HTTP_PROTOCOL_AUTO as 'auto' | 'http1',
@@ -553,8 +559,14 @@ export function transformChannelToFormDefaults(
         testStream = parsed.test_stream
       }
       extraSettings = {
-        force_format: parsed.force_format || false,
-        thinking_to_content: parsed.thinking_to_content || false,
+        force_format: parsed.force_format === true,
+        responses_compatibility_fix:
+          typeof parsed.responses_compatibility_fix === 'boolean'
+            ? parsed.responses_compatibility_fix
+            : true,
+        allow_reasoning_without_encrypted_content:
+          parsed.allow_reasoning_without_encrypted_content === true,
+        thinking_to_content: parsed.thinking_to_content === true,
         proxy: parsed.proxy || '',
         http_protocol: protocol,
         http2_connection_shards: protocol === HTTP_PROTOCOL_HTTP1 ? 1 : shards,
@@ -706,8 +718,8 @@ export function transformChannelToFormDefaults(
  */
 export function buildSettingJSON(formData: ChannelFormValues): string {
   const settingObj: Record<string, unknown> = {
-    force_format: formData.force_format || false,
-    thinking_to_content: formData.thinking_to_content || false,
+    force_format: formData.force_format === true,
+    thinking_to_content: formData.thinking_to_content === true,
     proxy: formData.proxy?.trim() || '',
     pass_through_body_enabled: formData.pass_through_body_enabled || false,
     system_prompt: formData.system_prompt || '',
@@ -718,6 +730,13 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
     test_sample_tokens: formData.test_sample_tokens ?? 0,
     test_prepend_nonce: formData.test_prepend_nonce === true,
     test_disable_threshold_seconds: formData.test_disable_threshold_seconds,
+  }
+
+  if (formData.type === 1) {
+    settingObj.responses_compatibility_fix =
+      formData.responses_compatibility_fix !== false
+    settingObj.allow_reasoning_without_encrypted_content =
+      formData.allow_reasoning_without_encrypted_content === true
   }
 
   const protocol = normalizeHttpProtocol(formData.http_protocol)

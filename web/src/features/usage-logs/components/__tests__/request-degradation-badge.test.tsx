@@ -57,9 +57,13 @@ await i18n.use(initReactI18next).init({
   resources: {
     en: {
       translation: {
-        Degraded: 'Degraded',
+        'Responses compatibility': 'Responses compatibility',
         'Removed non-replayable reasoning items: {{count}}':
           'Removed non-replayable reasoning items: {{count}}',
+        'Normalized request Item IDs: {{count}}':
+          'Normalized request Item IDs: {{count}}',
+        'Normalized response Item IDs: {{count}}':
+          'Normalized response Item IDs: {{count}}',
       },
     },
   },
@@ -99,30 +103,33 @@ async function unmountBadge(rendered: RenderedBadge) {
   rendered.container.remove()
 }
 
-describe('request degradation badge', () => {
+describe('Responses compatibility badge', () => {
   after(() => {
     domWindow.close()
   })
 
-  test('shows a warning with the dropped reasoning count', async () => {
+  test('shows each concrete compatibility action count', async () => {
     const rendered = await renderBadge({
       other: {
-        request_degradation: {
-          applied: true,
-          reason: 'non_replayable_reasoning',
-          dropped_reasoning_items: 4,
+        responses_compatibility: {
+          dropped_non_replayable_reasoning_items: 4,
+          normalized_request_item_ids: 2,
+          normalized_response_item_ids: 3,
         },
       },
     })
 
     const badge = rendered.container.querySelector(
-      '[data-request-degradation-badge="true"]'
+      '[data-responses-compatibility-badge="true"]'
     )
     assert.ok(badge)
-    assert.equal(rendered.container.textContent?.includes('Degraded'), true)
+    assert.equal(
+      rendered.container.textContent?.includes('Responses compatibility'),
+      true
+    )
     assert.equal(
       badge.getAttribute('aria-label'),
-      'Degraded: Removed non-replayable reasoning items: 4'
+      'Responses compatibility: Removed non-replayable reasoning items: 4 · Normalized request Item IDs: 2 · Normalized response Item IDs: 3'
     )
     assert.equal(badge.getAttribute('tabindex'), '0')
 
@@ -135,7 +142,7 @@ describe('request degradation badge', () => {
     assert.equal(rendered.container.textContent, '')
     assert.equal(
       rendered.container.querySelector(
-        '[data-request-degradation-badge="true"]'
+        '[data-responses-compatibility-badge="true"]'
       ),
       null
     )

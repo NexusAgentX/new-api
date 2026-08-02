@@ -192,6 +192,7 @@ import { ParamOverrideEditorDialog } from '../dialogs/param-override-editor-dial
 import { StatusCodeRiskDialog } from '../dialogs/status-code-risk-dialog'
 import { ModelMappingEditor } from '../model-mapping-editor'
 import { ChannelTestSettingsFields } from './channel-test-settings-fields'
+import { ResponsesCompatibilitySettingsFields } from './responses-compatibility-settings-fields'
 import {
   ChannelAdvancedSection,
   ChannelApiAccessSection,
@@ -298,6 +299,8 @@ const SENSITIVE_FORM_FIELDS = [
   'aws_key_type',
   'azure_responses_version',
   'force_format',
+  'responses_compatibility_fix',
+  'allow_reasoning_without_encrypted_content',
   'thinking_to_content',
   'proxy',
   'http_protocol',
@@ -362,6 +365,8 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.proxy?.trim() ||
     values.system_prompt?.trim() ||
     values.force_format ||
+    values.responses_compatibility_fix === false ||
+    values.allow_reasoning_without_encrypted_content ||
     values.thinking_to_content ||
     values.pass_through_body_enabled ||
     values.system_prompt_override ||
@@ -791,6 +796,12 @@ export function ChannelMutateDrawer({
   const currentParamOverride = form.watch('param_override')
   const currentHeaderOverride = form.watch('header_override')
   const currentForceFormat = form.watch('force_format')
+  const currentResponsesCompatibilityFix = form.watch(
+    'responses_compatibility_fix'
+  )
+  const currentAllowReasoningWithoutEncryptedContent = form.watch(
+    'allow_reasoning_without_encrypted_content'
+  )
   const currentThinkingToContent = form.watch('thinking_to_content')
   const currentPassThroughBodyEnabled = form.watch('pass_through_body_enabled')
   const currentDisableTaskPollingSleep = form.watch(
@@ -1091,6 +1102,8 @@ export function ChannelMutateDrawer({
   )
   const extraSettingsConfigured = Boolean(
     currentForceFormat ||
+    currentResponsesCompatibilityFix === false ||
+    currentAllowReasoningWithoutEncryptedContent ||
     currentThinkingToContent ||
     currentPassThroughBodyEnabled ||
     currentDisableTaskPollingSleep ||
@@ -4350,32 +4363,11 @@ export function ChannelMutateDrawer({
                             className='space-y-4 disabled:opacity-60'
                           >
                             <div className='divide-border space-y-0 divide-y border-y'>
-                              {currentType === 1 && (
-                                <FormField
-                                  control={form.control}
-                                  name='force_format'
-                                  render={({ field }) => (
-                                    <FormItem className='flex items-center justify-between px-4 py-3'>
-                                      <div className='space-y-0.5'>
-                                        <FormLabel>
-                                          {t('Force Format')}
-                                        </FormLabel>
-                                        <FormDescription>
-                                          {t(
-                                            'Force format response to OpenAI standard (OpenAI channel only)'
-                                          )}
-                                        </FormDescription>
-                                      </div>
-                                      <FormControl>
-                                        <Switch
-                                          checked={field.value}
-                                          onCheckedChange={field.onChange}
-                                        />
-                                      </FormControl>
-                                    </FormItem>
-                                  )}
-                                />
-                              )}
+                              <ResponsesCompatibilitySettingsFields
+                                form={form}
+                                currentType={currentType}
+                                sensitiveLocked={sensitiveLocked}
+                              />
 
                               <FormField
                                 control={form.control}

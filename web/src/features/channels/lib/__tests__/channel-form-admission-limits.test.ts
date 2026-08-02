@@ -79,6 +79,8 @@ describe('channel admission limit form', () => {
     assert.equal(values.rpm_limit, 120)
     assert.deepEqual(JSON.parse(buildSettingJSON(values)), {
       force_format: false,
+      responses_compatibility_fix: true,
+      allow_reasoning_without_encrypted_content: false,
       thinking_to_content: false,
       proxy: '',
       pass_through_body_enabled: false,

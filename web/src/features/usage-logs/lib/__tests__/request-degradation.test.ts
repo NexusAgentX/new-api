@@ -20,9 +20,42 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import type { LogOtherData } from '../../types'
-import { getRequestDegradation } from '../format'
+import { getRequestDegradation, getResponsesCompatibility } from '../format'
 
-describe('request degradation log metadata', () => {
+describe('Responses compatibility log metadata', () => {
+  test('accepts aggregate compatibility counts without sensitive fields', () => {
+    const compatibility = getResponsesCompatibility({
+      responses_compatibility: {
+        dropped_non_replayable_reasoning_items: 4,
+        normalized_request_item_ids: 2,
+        normalized_response_item_ids: 3,
+      },
+    })
+
+    assert.deepEqual(compatibility, {
+      dropped_non_replayable_reasoning_items: 4,
+      normalized_request_item_ids: 2,
+      normalized_response_item_ids: 3,
+    })
+  })
+
+  test('maps legacy reasoning degradation logs to the compatibility view', () => {
+    assert.deepEqual(
+      getResponsesCompatibility({
+        request_degradation: {
+          applied: true,
+          reason: 'non_replayable_reasoning',
+          dropped_reasoning_items: 4,
+        },
+      }),
+      {
+        dropped_non_replayable_reasoning_items: 4,
+        normalized_request_item_ids: 0,
+        normalized_response_item_ids: 0,
+      }
+    )
+  })
+
   test('accepts the stable non-replayable reasoning contract', () => {
     const degradation = getRequestDegradation({
       request_degradation: {

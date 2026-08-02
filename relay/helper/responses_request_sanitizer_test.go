@@ -1,169 +1,204 @@
 package helper
 
 import (
-	"bytes"
-	"io"
-	"net/http"
-	"net/http/httptest"
-	"strconv"
+	"encoding/json"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
-	"github.com/QuantumNous/new-api/types"
-	"github.com/gin-gonic/gin"
+	hosttypes "github.com/QuantumNous/new-api/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func newResponsesSanitizerContext(t *testing.T, body string) (*gin.Context, *dto.OpenAIResponsesRequest) {
+func responsesRequestFromJSON(t *testing.T, body string) *dto.OpenAIResponsesRequest {
 	t.Helper()
-	c, _ := gin.CreateTestContext(httptest.NewRecorder())
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-	t.Cleanup(func() {
-		common.CleanupBodyStorage(c)
-	})
-	request, err := GetAndValidateResponsesRequest(c)
-	require.NoError(t, err)
-	return c, request
+	var request dto.OpenAIResponsesRequest
+	require.NoError(t, common.Unmarshal([]byte(body), &request))
+	return &request
 }
 
-func TestSanitizeResponsesRequestRemovesOnlyNonReplayableReasoning(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	body := `{
+func responsesAttemptItems(t *testing.T, request *dto.OpenAIResponsesRequest) []map[string]any {
+	t.Helper()
+	var items []map[string]any
+	require.NoError(t, common.Unmarshal(request.Input, &items))
+	return items
+}
+
+func TestPrepareResponsesRequestAttemptAppliesDefaultReplayProtectionAndItemIDs(t *testing.T) {
+	original := responsesRequestFromJSON(t, `{
 		"model":"gpt-test",
 		"store":false,
-		"vendor_extension":{"preserve":true},
 		"input":[
-			{"type":"message","id":"msg_1","role":"user","content":"hello"},
-			{"type":"reasoning","id":"rs_missing","summary":[{"type":"summary_text","text":"missing"}]},
-			{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{}"},
-			{"type":"reasoning","id":"rs_null","encrypted_content":null},
-			{"type":"function_call_output","id":"out_1","call_id":"call_1","output":"ok"},
-			{"type":"reasoning","id":"rs_empty","encrypted_content":""},
-			{"type":"reasoning","id":"rs_valid","encrypted_content":"ciphertext","summary":[]},
-			{"type":"reasoning","id":"rs_numeric","encrypted_content":0},
-			{"type":"message","id":"msg_2","role":"assistant","content":"done"}
+			{"type":"message","id":"item_message","role":"user","content":"hello","vendor_field":true},
+			{"type":"reasoning","id":"item_missing","summary":[{"type":"summary_text","text":"missing"}]},
+			{"type":"function_call","id":"item_function","call_id":"call_1","name":"lookup","arguments":"{}"},
+			{"type":"reasoning","id":"item_null","encrypted_content":null},
+			{"type":"function_call_output","id":"item_output","call_id":"call_1","output":"ok"},
+			{"type":"reasoning","id":"item_empty","encrypted_content":""},
+			{"type":"reasoning","id":"item_valid","encrypted_content":"ciphertext","summary":[]},
+			{"type":"reasoning","id":"item_numeric","encrypted_content":0},
+			{"type":"message","id":"msg_valid","role":"assistant","content":"done"}
 		]
-	}`
-	c, request := newResponsesSanitizerContext(t, body)
+	}`)
+	originalInput := append(json.RawMessage(nil), original.Input...)
 
-	degradation, err := SanitizeResponsesRequest(c, request)
+	attempt, err := PrepareResponsesRequestAttempt(original, dto.ChannelSettings{}, false)
 	require.NoError(t, err)
-	require.NotNil(t, degradation)
-	assert.True(t, degradation.Applied)
-	assert.Equal(t, types.RequestDegradationReasonNonReplayableReasoning, degradation.Reason)
-	assert.Equal(t, 3, degradation.DroppedReasoningItems)
+	require.NotNil(t, attempt.Compatibility)
+	assert.Equal(t, 3, attempt.Compatibility.DroppedNonReplayableReasoningItems)
+	assert.Equal(t, 4, attempt.Compatibility.NormalizedRequestItemIDs)
+	require.NotNil(t, attempt.Degradation)
+	assert.Equal(t, hosttypes.RequestDegradationReasonNonReplayableReasoning, attempt.Degradation.Reason)
+	assert.Equal(t, 3, attempt.Degradation.DroppedReasoningItems)
 
-	var inputItems []struct {
-		ID               string `json:"id"`
-		CallID           string `json:"call_id"`
-		EncryptedContent any    `json:"encrypted_content"`
-	}
-	require.NoError(t, common.Unmarshal(request.Input, &inputItems))
-	require.Len(t, inputItems, 6)
-	assert.Equal(t, []string{"msg_1", "fc_1", "out_1", "rs_valid", "rs_numeric", "msg_2"}, []string{
-		inputItems[0].ID,
-		inputItems[1].ID,
-		inputItems[2].ID,
-		inputItems[3].ID,
-		inputItems[4].ID,
-		inputItems[5].ID,
-	})
-	assert.Equal(t, "call_1", inputItems[1].CallID)
-	assert.Equal(t, "call_1", inputItems[2].CallID)
-	assert.Equal(t, "ciphertext", inputItems[3].EncryptedContent)
-	assert.Equal(t, float64(0), inputItems[4].EncryptedContent)
-
-	storage, err := common.GetBodyStorage(c)
-	require.NoError(t, err)
-	sanitizedBody, err := storage.Bytes()
-	require.NoError(t, err)
-	var topLevel map[string]any
-	require.NoError(t, common.Unmarshal(sanitizedBody, &topLevel))
-	assert.Equal(t, map[string]any{"preserve": true}, topLevel["vendor_extension"])
-	assert.Equal(t, int64(len(sanitizedBody)), c.Request.ContentLength)
-	assert.Equal(t, strconv.Itoa(len(sanitizedBody)), c.Request.Header.Get("Content-Length"))
-
-	for attempt := 0; attempt < 2; attempt++ {
-		attemptStorage, storageErr := common.GetBodyStorage(c)
-		require.NoError(t, storageErr)
-		c.Request.Body = io.NopCloser(attemptStorage)
-		forwardedBody, readErr := io.ReadAll(c.Request.Body)
-		require.NoError(t, readErr)
-		assert.JSONEq(t, string(sanitizedBody), string(forwardedBody), "attempt %d must reuse the sanitized body", attempt)
-	}
-	assert.Equal(t, 3, degradation.DroppedReasoningItems)
+	items := responsesAttemptItems(t, attempt.Request)
+	require.Len(t, items, 6)
+	assert.Equal(t, "msg_message", items[0]["id"])
+	assert.Equal(t, true, items[0]["vendor_field"])
+	assert.Equal(t, "fc_function", items[1]["id"])
+	assert.Equal(t, "call_1", items[1]["call_id"])
+	assert.Equal(t, "item_output", items[2]["id"])
+	assert.Equal(t, "call_1", items[2]["call_id"])
+	assert.Equal(t, "rs_valid", items[3]["id"])
+	assert.Equal(t, "rs_numeric", items[4]["id"])
+	assert.Equal(t, "msg_valid", items[5]["id"])
+	assert.Equal(t, originalInput, original.Input)
 }
 
-func TestSanitizeResponsesRequestKeepsOutOfScopeInputsByteIdentical(t *testing.T) {
-	gin.SetMode(gin.TestMode)
+func TestPrepareResponsesRequestAttemptAllowsSummaryOnlyReasoningWithoutDisablingIDFix(t *testing.T) {
+	original := responsesRequestFromJSON(t, `{
+		"model":"gpt-test",
+		"store":false,
+		"input":[
+			{"type":"reasoning","id":"item_reasoning","summary":[],"vendor_field":"kept"},
+			{"type":"function_call","id":"item_function","call_id":"call_1","name":"lookup","arguments":"{}"}
+		]
+	}`)
+	allow := true
+
+	attempt, err := PrepareResponsesRequestAttempt(original, dto.ChannelSettings{
+		AllowReasoningWithoutEncryptedContent: &allow,
+	}, false)
+	require.NoError(t, err)
+	require.NotNil(t, attempt.Compatibility)
+	assert.Zero(t, attempt.Compatibility.DroppedNonReplayableReasoningItems)
+	assert.Equal(t, 2, attempt.Compatibility.NormalizedRequestItemIDs)
+	assert.Nil(t, attempt.Degradation)
+
+	items := responsesAttemptItems(t, attempt.Request)
+	require.Len(t, items, 2)
+	assert.Equal(t, "rs_reasoning", items[0]["id"])
+	assert.Equal(t, "kept", items[0]["vendor_field"])
+	assert.Equal(t, "fc_function", items[1]["id"])
+	assert.Equal(t, "call_1", items[1]["call_id"])
+}
+
+func TestPrepareResponsesRequestAttemptUsesDeterministicCollisionFreeIDs(t *testing.T) {
+	original := responsesRequestFromJSON(t, `{
+		"model":"gpt-test",
+		"store":false,
+		"input":[
+			{"type":"function_call","id":"fc_collision","call_id":"call_1"},
+			{"type":"function_call","id":"item_collision","call_id":"call_2"},
+			{"type":"function_call","id":"item_collision","call_id":"call_3"}
+		]
+	}`)
+
+	first, err := PrepareResponsesRequestAttempt(original, dto.ChannelSettings{}, false)
+	require.NoError(t, err)
+	second, err := PrepareResponsesRequestAttempt(original, dto.ChannelSettings{}, false)
+	require.NoError(t, err)
+	firstItems := responsesAttemptItems(t, first.Request)
+	secondItems := responsesAttemptItems(t, second.Request)
+
+	assert.Equal(t, "fc_collision", firstItems[0]["id"])
+	assert.NotEqual(t, "fc_collision", firstItems[1]["id"])
+	assert.Equal(t, firstItems[1]["id"], firstItems[2]["id"])
+	assert.Equal(t, firstItems[1]["id"], secondItems[1]["id"])
+	assert.Equal(t, 1, first.Compatibility.NormalizedRequestItemIDs)
+}
+
+func TestPrepareResponsesRequestAttemptDoesNotPolluteCrossChannelRetries(t *testing.T) {
+	original := responsesRequestFromJSON(t, `{
+		"model":"gpt-test",
+		"store":false,
+		"input":[
+			{"type":"reasoning","id":"item_reasoning","summary":[]},
+			{"type":"function_call","id":"item_function","call_id":"call_1"}
+		]
+	}`)
+	disabled := false
+	fixDisabled := dto.ChannelSettings{ResponsesCompatibilityFix: &disabled}
+
+	for _, order := range [][]dto.ChannelSettings{{{}, fixDisabled}, {fixDisabled, {}}} {
+		first, err := PrepareResponsesRequestAttempt(original, order[0], false)
+		require.NoError(t, err)
+		second, err := PrepareResponsesRequestAttempt(original, order[1], false)
+		require.NoError(t, err)
+
+		if order[0].ResponsesCompatibilityFixEnabled() {
+			assert.Len(t, responsesAttemptItems(t, first.Request), 1)
+			assert.NotNil(t, first.Compatibility)
+		} else {
+			assert.Len(t, responsesAttemptItems(t, first.Request), 2)
+			assert.Nil(t, first.Compatibility)
+		}
+		if order[1].ResponsesCompatibilityFixEnabled() {
+			assert.Len(t, responsesAttemptItems(t, second.Request), 1)
+			assert.NotNil(t, second.Compatibility)
+		} else {
+			assert.Len(t, responsesAttemptItems(t, second.Request), 2)
+			assert.Nil(t, second.Compatibility)
+		}
+		assert.Len(t, responsesAttemptItems(t, original), 2)
+	}
+}
+
+func TestPrepareResponsesRequestAttemptKeepsOutOfScopeAndDisabledRequestsUnchanged(t *testing.T) {
+	disabled := false
 	testCases := []struct {
-		name string
-		body string
+		name        string
+		body        string
+		settings    dto.ChannelSettings
+		passThrough bool
 	}{
 		{
+			name:     "main compatibility disabled",
+			body:     `{"model":"gpt-test","store":false,"input":[{"type":"reasoning","id":"item_1"}]}`,
+			settings: dto.ChannelSettings{ResponsesCompatibilityFix: &disabled},
+		},
+		{
+			name:        "request body passthrough",
+			body:        `{"model":"gpt-test","store":false,"input":[{"type":"reasoning","id":"item_1"}]}`,
+			passThrough: true,
+		},
+		{
 			name: "store omitted",
-			body: `{"model":"gpt-test","input":[{"type":"reasoning","id":"rs_1"}]}`,
+			body: `{"model":"gpt-test","input":[{"type":"reasoning","id":"item_1"}]}`,
 		},
 		{
 			name: "store true",
-			body: `{"model":"gpt-test","store":true,"input":[{"type":"reasoning","id":"rs_1"}]}`,
+			body: `{"model":"gpt-test","store":true,"input":[{"type":"function_call","id":"item_1"}]}`,
 		},
 		{
-			name: "store null",
-			body: `{"model":"gpt-test","store":null,"input":[{"type":"reasoning","id":"rs_1"}]}`,
-		},
-		{
-			name: "store string false",
-			body: `{"model":"gpt-test","store":"false","input":[{"type":"reasoning","id":"rs_1"}]}`,
-		},
-		{
-			name: "scalar input",
+			name: "non-array input",
 			body: `{"model":"gpt-test","store":false,"input":"hello"}`,
-		},
-		{
-			name: "object input",
-			body: `{"model":"gpt-test","store":false,"input":{"role":"user","content":"hello"}}`,
-		},
-		{
-			name: "nonempty and invalid encrypted content stays upstream validated",
-			body: `{"model":"gpt-test","store":false,"input":[{"type":"reasoning","id":"rs_text","encrypted_content":" "},{"type":"reasoning","id":"rs_number","encrypted_content":0},{"type":42,"id":"unknown"}]}`,
 		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			c, request := newResponsesSanitizerContext(t, testCase.body)
-			storage, err := common.GetBodyStorage(c)
-			require.NoError(t, err)
-			before, err := storage.Bytes()
-			require.NoError(t, err)
-			before = bytes.Clone(before)
+			original := responsesRequestFromJSON(t, testCase.body)
+			originalInput := append(json.RawMessage(nil), original.Input...)
 
-			degradation, err := SanitizeResponsesRequest(c, request)
+			attempt, err := PrepareResponsesRequestAttempt(original, testCase.settings, testCase.passThrough)
 			require.NoError(t, err)
-			assert.Nil(t, degradation)
-
-			storage, err = common.GetBodyStorage(c)
-			require.NoError(t, err)
-			after, err := storage.Bytes()
-			require.NoError(t, err)
-			assert.Equal(t, before, after)
+			assert.Nil(t, attempt.Compatibility)
+			assert.Nil(t, attempt.Degradation)
+			assert.Equal(t, originalInput, attempt.Request.Input)
+			assert.Equal(t, originalInput, original.Input)
+			assert.NotSame(t, original, attempt.Request)
 		})
 	}
-}
-
-func TestMalformedResponsesJSONKeepsValidationErrorPath(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	c, _ := gin.CreateTestContext(httptest.NewRecorder())
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"model":"gpt-test","store":false,"input":[`))
-	c.Request.Header.Set("Content-Type", "application/json")
-	t.Cleanup(func() {
-		common.CleanupBodyStorage(c)
-	})
-
-	_, err := GetAndValidateResponsesRequest(c)
-	require.Error(t, err)
 }

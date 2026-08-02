@@ -1,12 +1,14 @@
 package openai
 
 import (
+	"bytes"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -39,6 +41,83 @@ func newNativeResponsesStreamTestContext(t *testing.T, body string) (*gin.Contex
 		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
 	}
 	return c, recorder, resp, info
+}
+
+func TestOaiResponsesHandlerNormalizesItemIDsWithoutDroppingExtensions(t *testing.T) {
+	body := []byte(`{
+		"id":"resp_1",
+		"status":"completed",
+		"vendor_response":{"keep":true},
+		"output":[{"type":"function_call","id":"item_function","call_id":"call_1","name":"lookup","arguments":"{}","vendor_item":7}],
+		"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}
+	}`)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "gpt-test",
+		ChannelMeta:     &relaycommon.ChannelMeta{},
+	}
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(bytes.NewReader(body)),
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+	}
+
+	usage, apiErr := OaiResponsesHandler(c, info, resp)
+	require.Nil(t, apiErr)
+	require.NotNil(t, usage)
+	var output map[string]any
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &output))
+	assert.Equal(t, map[string]any{"keep": true}, output["vendor_response"])
+	item := output["output"].([]any)[0].(map[string]any)
+	assert.Equal(t, "fc_function", item["id"])
+	assert.Equal(t, "call_1", item["call_id"])
+	assert.Equal(t, float64(7), item["vendor_item"])
+	require.NotNil(t, info.ResponsesCompatibility)
+	assert.Equal(t, 1, info.ResponsesCompatibility.NormalizedResponseItemIDs)
+}
+
+func TestOaiResponsesStreamHandlerNormalizesFullItemEventChain(t *testing.T) {
+	body := strings.Join([]string{
+		`data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"item_function","call_id":"call_1","vendor_item":true}}`,
+		`data: {"type":"response.function_call_arguments.delta","output_index":0,"item_id":"item_function","delta":"{}","vendor_event":true}`,
+		`data: {"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","id":"item_function","call_id":"call_1","arguments":"{}"}}`,
+		`data: {"type":"response.completed","response":{"status":"completed","output":[{"type":"function_call","id":"item_function","call_id":"call_1","arguments":"{}","vendor_final":true}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`,
+		`data: [DONE]`,
+		``,
+	}, "\n")
+	c, recorder, resp, info := newNativeResponsesStreamTestContext(t, body)
+
+	usage, streamError := OaiResponsesStreamHandler(c, info, resp)
+
+	require.Nil(t, streamError)
+	require.NotNil(t, usage)
+	assert.NotContains(t, recorder.Body.String(), `"item_function"`)
+	assert.Contains(t, recorder.Body.String(), `"fc_function"`)
+	assert.Contains(t, recorder.Body.String(), `"vendor_event":true`)
+	assert.Contains(t, recorder.Body.String(), `"vendor_final":true`)
+	require.NotNil(t, info.ResponsesCompatibility)
+	assert.Equal(t, 1, info.ResponsesCompatibility.NormalizedResponseItemIDs)
+}
+
+func TestOaiResponsesStreamHandlerHonorsExplicitCompatibilityDisable(t *testing.T) {
+	body := strings.Join([]string{
+		`data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"item_function","call_id":"call_1"}}`,
+		`data: {"type":"response.completed","response":{"status":"completed","output":[{"type":"function_call","id":"item_function","call_id":"call_1"}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`,
+		`data: [DONE]`,
+		``,
+	}, "\n")
+	c, recorder, resp, info := newNativeResponsesStreamTestContext(t, body)
+	disabled := false
+	info.ChannelSetting.ResponsesCompatibilityFix = &disabled
+
+	_, streamError := OaiResponsesStreamHandler(c, info, resp)
+
+	require.Nil(t, streamError)
+	assert.Contains(t, recorder.Body.String(), `"item_function"`)
+	assert.NotContains(t, recorder.Body.String(), `"fc_function"`)
+	assert.Nil(t, info.ResponsesCompatibility)
 }
 
 func TestOaiResponsesStreamHandlerReturnsFirstRateLimitEventForRetry(t *testing.T) {

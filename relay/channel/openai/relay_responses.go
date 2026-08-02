@@ -26,6 +26,20 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
 	}
+	if responsesCompatibilityFixEnabled(info) {
+		normalizedBody, normalizedIDs, normalizeErr := helper.NormalizeResponsesResponseJSON(
+			responseBody,
+			helper.NewResponsesItemIDNormalizer(),
+		)
+		if normalizeErr != nil {
+			return nil, types.NewOpenAIError(normalizeErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+		}
+		responseBody = normalizedBody
+		info.AddNormalizedResponsesResponseItemIDs(normalizedIDs)
+		if normalizedIDs > 0 {
+			logger.LogWarn(c, fmt.Sprintf("responses compatibility applied: normalized_response_item_ids=%d", normalizedIDs))
+		}
+	}
 	err = common.Unmarshal(responseBody, &responsesResponse)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
@@ -86,8 +100,25 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	imageCommitted := false
 	var firstEventError *types.NewAPIError
 	forwardedEvent := false
+	var itemIDNormalizer *helper.ResponsesItemIDNormalizer
+	if responsesCompatibilityFixEnabled(info) {
+		itemIDNormalizer = helper.NewResponsesItemIDNormalizer()
+	}
 
 	timeoutErr := helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
+		if itemIDNormalizer != nil {
+			normalizedData, normalizedIDs, err := helper.NormalizeResponsesStreamEventJSON(
+				[]byte(data),
+				itemIDNormalizer,
+			)
+			if err != nil {
+				logger.LogError(c, "failed to normalize responses stream event: "+err.Error())
+				sr.Error(err)
+				return
+			}
+			data = string(normalizedData)
+			info.AddNormalizedResponsesResponseItemIDs(normalizedIDs)
+		}
 
 		// 检查当前数据是否包含 completed 状态和 usage 信息
 		var streamResponse dto.ResponsesStreamResponse
@@ -176,6 +207,12 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		info.ResetFirstResponseTimeForRetry()
 		return nil, firstEventError
 	}
+	if itemIDNormalizer != nil && itemIDNormalizer.NormalizedCount() > 0 {
+		logger.LogWarn(c, fmt.Sprintf(
+			"responses compatibility applied: normalized_response_item_ids=%d",
+			itemIDNormalizer.NormalizedCount(),
+		))
+	}
 
 	if usage.CompletionTokens == 0 {
 		// 计算输出文本的 token 数量
@@ -194,6 +231,10 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 
 	return usage, nil
+}
+
+func responsesCompatibilityFixEnabled(info *relaycommon.RelayInfo) bool {
+	return info != nil && info.ChannelMeta != nil && info.ChannelSetting.ResponsesCompatibilityFixEnabled()
 }
 
 func newResponsesStreamError(streamResponse *dto.ResponsesStreamResponse) *types.NewAPIError {

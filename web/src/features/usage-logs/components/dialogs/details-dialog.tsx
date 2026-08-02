@@ -59,7 +59,7 @@ import {
   parseAuditLine,
   decodeBillingExprB64,
   getTieredBillingSummary,
-  getRequestDegradation,
+  getResponsesCompatibility,
   hasAnyCacheTokens,
   isViolationFeeLog,
   getFirstResponseTimeColor,
@@ -496,7 +496,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
   const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false })
   const details = props.log.content ?? ''
   const other = parseLogOther(props.log.other)
-  const requestDegradation = getRequestDegradation(other)
+  const responsesCompatibility = getResponsesCompatibility(other)
   const requestModelMapping = other?.request_customization?.model_mapping
   const typeConfig = getLogTypeConfig(props.log.type)
 
@@ -872,32 +872,51 @@ export function DetailsDialog(props: DetailsDialogProps) {
           </DetailSection>
         )}
 
-        {requestDegradation && (
+        {responsesCompatibility && (
           <DetailSection
             icon={<AlertTriangle className='size-3.5' aria-hidden='true' />}
             iconTone='warning'
-            label={t('Request degradation')}
+            label={t('Responses compatibility')}
           >
             <DetailRow
               label={t('Status')}
               value={
                 <StatusBadge
-                  label={t('Degraded')}
+                  label={t('Applied')}
                   variant='warning'
                   size='sm'
                   copyable={false}
                 />
               }
             />
-            <DetailRow
-              label={t('Reason')}
-              value={t('Non-replayable reasoning history')}
-            />
-            <DetailRow
-              label={t('Removed items')}
-              value={String(requestDegradation.dropped_reasoning_items)}
-              mono
-            />
+            {responsesCompatibility.dropped_non_replayable_reasoning_items >
+              0 && (
+              <DetailRow
+                label={t('Removed non-replayable reasoning items')}
+                value={String(
+                  responsesCompatibility.dropped_non_replayable_reasoning_items
+                )}
+                mono
+              />
+            )}
+            {responsesCompatibility.normalized_request_item_ids > 0 && (
+              <DetailRow
+                label={t('Normalized request Item IDs')}
+                value={String(
+                  responsesCompatibility.normalized_request_item_ids
+                )}
+                mono
+              />
+            )}
+            {responsesCompatibility.normalized_response_item_ids > 0 && (
+              <DetailRow
+                label={t('Normalized response Item IDs')}
+                value={String(
+                  responsesCompatibility.normalized_response_item_ids
+                )}
+                mono
+              />
+            )}
           </DetailSection>
         )}
 

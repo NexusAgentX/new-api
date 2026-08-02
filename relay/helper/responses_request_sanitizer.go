@@ -6,28 +6,40 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
-	"github.com/QuantumNous/new-api/types"
-	"github.com/gin-gonic/gin"
-	"github.com/tidwall/sjson"
+	hosttypes "github.com/QuantumNous/new-api/types"
 )
 
-// SanitizeResponsesRequest removes reasoning history that cannot be replayed
-// in an explicitly stateless Responses request. It updates both the parsed
-// request and the reusable raw body so converted and passthrough attempts use
-// the same sanitized input.
-func SanitizeResponsesRequest(c *gin.Context, request *dto.OpenAIResponsesRequest) (*types.RequestDegradation, error) {
-	if c == nil || request == nil {
-		return nil, nil
+type ResponsesRequestAttempt struct {
+	Request       *dto.OpenAIResponsesRequest
+	Compatibility *hosttypes.ResponsesCompatibility
+	Degradation   *hosttypes.RequestDegradation
+}
+
+func PrepareResponsesRequestAttempt(
+	original *dto.OpenAIResponsesRequest,
+	settings dto.ChannelSettings,
+	passThrough bool,
+) (*ResponsesRequestAttempt, error) {
+	if original == nil {
+		return nil, fmt.Errorf("responses request is nil")
+	}
+	request, err := common.DeepCopy(original)
+	if err != nil {
+		return nil, fmt.Errorf("copy responses request: %w", err)
+	}
+	attempt := &ResponsesRequestAttempt{Request: request}
+	if passThrough || !settings.ResponsesCompatibilityFixEnabled() {
+		return attempt, nil
 	}
 	if common.GetJsonType(request.Store) != "boolean" {
-		return nil, nil
+		return attempt, nil
 	}
 	var store bool
 	if err := common.Unmarshal(request.Store, &store); err != nil {
 		return nil, fmt.Errorf("decode responses store field: %w", err)
 	}
 	if store || common.GetJsonType(request.Input) != "array" {
-		return nil, nil
+		return attempt, nil
 	}
 
 	var inputItems []json.RawMessage
@@ -35,68 +47,83 @@ func SanitizeResponsesRequest(c *gin.Context, request *dto.OpenAIResponsesReques
 		return nil, fmt.Errorf("decode responses input array: %w", err)
 	}
 
-	type inputItem struct {
-		Type             string          `json:"type"`
-		EncryptedContent json.RawMessage `json:"encrypted_content"`
-	}
-
 	filteredItems := make([]json.RawMessage, 0, len(inputItems))
 	droppedItems := 0
 	for _, rawItem := range inputItems {
-		if common.GetJsonType(rawItem) != "object" {
-			filteredItems = append(filteredItems, rawItem)
-			continue
+		drop, err := shouldDropResponsesReasoningItem(
+			rawItem,
+			settings.AllowsReasoningWithoutEncryptedContent(),
+		)
+		if err != nil {
+			return nil, err
 		}
-
-		var item inputItem
-		if err := common.Unmarshal(rawItem, &item); err != nil || item.Type != "reasoning" {
-			filteredItems = append(filteredItems, rawItem)
-			continue
-		}
-
-		dropItem := len(item.EncryptedContent) == 0 || common.GetJsonType(item.EncryptedContent) == "null"
-		if common.GetJsonType(item.EncryptedContent) == "string" {
-			var encryptedContent string
-			if err := common.Unmarshal(item.EncryptedContent, &encryptedContent); err != nil {
-				return nil, fmt.Errorf("decode reasoning encrypted_content: %w", err)
-			}
-			dropItem = encryptedContent == ""
-		}
-		if dropItem {
+		if drop {
 			droppedItems++
 			continue
 		}
 		filteredItems = append(filteredItems, rawItem)
 	}
 
-	if droppedItems == 0 {
-		return nil, nil
+	normalizer := NewResponsesItemIDNormalizer()
+	for _, rawItem := range filteredItems {
+		reserveResponsesItemID(rawItem, normalizer)
+	}
+	for index, rawItem := range filteredItems {
+		normalizedItem, changed, err := normalizeResponsesItem(rawItem, normalizer)
+		if err != nil {
+			return nil, err
+		}
+		if changed {
+			filteredItems[index] = normalizedItem
+		}
+	}
+	normalizedIDs := normalizer.NormalizedCount()
+	if droppedItems == 0 && normalizedIDs == 0 {
+		return attempt, nil
 	}
 
 	filteredInput, err := common.Marshal(filteredItems)
 	if err != nil {
-		return nil, fmt.Errorf("encode sanitized responses input: %w", err)
+		return nil, fmt.Errorf("encode compatible responses input: %w", err)
 	}
-	storage, err := common.GetBodyStorage(c)
-	if err != nil {
-		return nil, fmt.Errorf("read reusable responses body: %w", err)
+	request.Input = filteredInput
+	attempt.Compatibility = &hosttypes.ResponsesCompatibility{
+		DroppedNonReplayableReasoningItems: droppedItems,
+		NormalizedRequestItemIDs:           normalizedIDs,
 	}
-	body, err := storage.Bytes()
-	if err != nil {
-		return nil, fmt.Errorf("read responses body bytes: %w", err)
+	if droppedItems > 0 {
+		attempt.Degradation = &hosttypes.RequestDegradation{
+			Applied:               true,
+			Reason:                hosttypes.RequestDegradationReasonNonReplayableReasoning,
+			DroppedReasoningItems: droppedItems,
+		}
 	}
-	filteredBody, err := sjson.SetRawBytes(body, "input", filteredInput)
-	if err != nil {
-		return nil, fmt.Errorf("replace responses input in request body: %w", err)
+	return attempt, nil
+}
+
+func shouldDropResponsesReasoningItem(rawItem json.RawMessage, allowWithoutEncryptedContent bool) (bool, error) {
+	if allowWithoutEncryptedContent || common.GetJsonType(rawItem) != "object" {
+		return false, nil
 	}
-	if err := common.ReplaceBodyStorage(c, filteredBody); err != nil {
-		return nil, fmt.Errorf("store sanitized responses body: %w", err)
+	var item map[string]json.RawMessage
+	if err := common.Unmarshal(rawItem, &item); err != nil {
+		return false, nil
+	}
+	itemType, ok := decodeJSONString(item["type"])
+	if !ok || itemType != "reasoning" {
+		return false, nil
 	}
 
-	request.Input = filteredInput
-	return &types.RequestDegradation{
-		Applied:               true,
-		Reason:                types.RequestDegradationReasonNonReplayableReasoning,
-		DroppedReasoningItems: droppedItems,
-	}, nil
+	encryptedContent, exists := item["encrypted_content"]
+	if !exists || len(encryptedContent) == 0 || common.GetJsonType(encryptedContent) == "null" {
+		return true, nil
+	}
+	if common.GetJsonType(encryptedContent) != "string" {
+		return false, nil
+	}
+	var value string
+	if err := common.Unmarshal(encryptedContent, &value); err != nil {
+		return false, fmt.Errorf("decode reasoning encrypted_content: %w", err)
+	}
+	return value == "", nil
 }

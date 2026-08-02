@@ -25,7 +25,11 @@ import {
 } from '@/features/pricing/lib/billing-expr'
 
 import type { UsageLog } from '../data/schema'
-import type { LogOtherData, RequestDegradationInfo } from '../types'
+import type {
+  LogOtherData,
+  RequestDegradationInfo,
+  ResponsesCompatibilityInfo,
+} from '../types'
 
 export { normalizeTierLabel }
 
@@ -180,6 +184,33 @@ export function getRequestDegradation(
     return null
   }
   return degradation
+}
+
+export function getResponsesCompatibility(
+  other: LogOtherData | null | undefined
+): ResponsesCompatibilityInfo | null {
+  const compatibility = other?.responses_compatibility
+  if (compatibility) {
+    const counts = [
+      compatibility.dropped_non_replayable_reasoning_items,
+      compatibility.normalized_request_item_ids,
+      compatibility.normalized_response_item_ids,
+    ]
+    if (
+      counts.every((count) => Number.isInteger(count) && count >= 0) &&
+      counts.some((count) => count > 0)
+    ) {
+      return compatibility
+    }
+  }
+
+  const legacy = getRequestDegradation(other)
+  if (!legacy) return null
+  return {
+    dropped_non_replayable_reasoning_items: legacy.dropped_reasoning_items,
+    normalized_request_item_ids: 0,
+    normalized_response_item_ids: 0,
+  }
 }
 
 /**

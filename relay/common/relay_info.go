@@ -179,6 +179,10 @@ type RelayInfo struct {
 	// It is attached to the top level of consume and error log metadata.
 	RequestDegradation *hosttypes.RequestDegradation
 
+	// ResponsesCompatibility contains aggregate, non-sensitive compatibility
+	// actions applied across this relay's request attempts and final response.
+	ResponsesCompatibility *hosttypes.ResponsesCompatibility
+
 	// TieredBillingSnapshot captures tiered billing rules at pre-consume time.
 	// Auto-group retries refresh its group-dependent fields before each attempt
 	// and again before settlement. Non-nil only when billing mode is "tiered_expr".
@@ -235,6 +239,42 @@ type FirstResponseAttemptResult struct {
 	Monitored      bool
 	TimedOut       bool
 	TimeoutSeconds int
+}
+
+func (info *RelayInfo) RecordResponsesRequestCompatibility(
+	compatibility *hosttypes.ResponsesCompatibility,
+	degradation *hosttypes.RequestDegradation,
+) {
+	if info == nil {
+		return
+	}
+	if compatibility != nil && compatibility.Applied() {
+		if info.ResponsesCompatibility == nil {
+			info.ResponsesCompatibility = &hosttypes.ResponsesCompatibility{}
+		}
+		if compatibility.DroppedNonReplayableReasoningItems > info.ResponsesCompatibility.DroppedNonReplayableReasoningItems {
+			info.ResponsesCompatibility.DroppedNonReplayableReasoningItems = compatibility.DroppedNonReplayableReasoningItems
+		}
+		if compatibility.NormalizedRequestItemIDs > info.ResponsesCompatibility.NormalizedRequestItemIDs {
+			info.ResponsesCompatibility.NormalizedRequestItemIDs = compatibility.NormalizedRequestItemIDs
+		}
+	}
+	if degradation != nil && degradation.Applied && degradation.DroppedReasoningItems > 0 {
+		if info.RequestDegradation == nil || degradation.DroppedReasoningItems > info.RequestDegradation.DroppedReasoningItems {
+			copy := *degradation
+			info.RequestDegradation = &copy
+		}
+	}
+}
+
+func (info *RelayInfo) AddNormalizedResponsesResponseItemIDs(count int) {
+	if info == nil || count <= 0 {
+		return
+	}
+	if info.ResponsesCompatibility == nil {
+		info.ResponsesCompatibility = &hosttypes.ResponsesCompatibility{}
+	}
+	info.ResponsesCompatibility.NormalizedResponseItemIDs += count
 }
 
 func (info *RelayInfo) InitChannelMeta(c *gin.Context) {

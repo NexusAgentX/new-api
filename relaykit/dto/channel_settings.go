@@ -11,18 +11,20 @@ import (
 )
 
 type ChannelSettings struct {
-	ForceFormat                 bool     `json:"force_format,omitempty"`
-	ThinkingToContent           bool     `json:"thinking_to_content,omitempty"`
-	Proxy                       string   `json:"proxy"`
-	PassThroughBodyEnabled      bool     `json:"pass_through_body_enabled,omitempty"`
-	SystemPrompt                string   `json:"system_prompt,omitempty"`
-	SystemPromptOverride        bool     `json:"system_prompt_override,omitempty"`
-	FirstResponseTimeoutSeconds *int     `json:"first_response_timeout_seconds,omitempty"`
-	TestEndpointType            string   `json:"test_endpoint_type,omitempty"`
-	TestStream                  *bool    `json:"test_stream,omitempty"`
-	TestSampleTokens            *int     `json:"test_sample_tokens,omitempty"`
-	TestPrependNonce            *bool    `json:"test_prepend_nonce,omitempty"`
-	TestDisableThresholdSeconds *float64 `json:"test_disable_threshold_seconds,omitempty"`
+	ForceFormat                           bool     `json:"force_format,omitempty"`
+	ResponsesCompatibilityFix             *bool    `json:"responses_compatibility_fix,omitempty"`
+	AllowReasoningWithoutEncryptedContent *bool    `json:"allow_reasoning_without_encrypted_content,omitempty"`
+	ThinkingToContent                     bool     `json:"thinking_to_content,omitempty"`
+	Proxy                                 string   `json:"proxy"`
+	PassThroughBodyEnabled                bool     `json:"pass_through_body_enabled,omitempty"`
+	SystemPrompt                          string   `json:"system_prompt,omitempty"`
+	SystemPromptOverride                  bool     `json:"system_prompt_override,omitempty"`
+	FirstResponseTimeoutSeconds           *int     `json:"first_response_timeout_seconds,omitempty"`
+	TestEndpointType                      string   `json:"test_endpoint_type,omitempty"`
+	TestStream                            *bool    `json:"test_stream,omitempty"`
+	TestSampleTokens                      *int     `json:"test_sample_tokens,omitempty"`
+	TestPrependNonce                      *bool    `json:"test_prepend_nonce,omitempty"`
+	TestDisableThresholdSeconds           *float64 `json:"test_disable_threshold_seconds,omitempty"`
 	// HTTPProtocol controls outbound HTTP version negotiation for this channel.
 	// Accepted values: "", "auto" (default), "http1".
 	HTTPProtocol string `json:"http_protocol,omitempty"`
@@ -35,6 +37,14 @@ type ChannelSettings struct {
 	// RPMLimit limits relay attempts admitted in a rolling 60-second window.
 	// Zero means unlimited.
 	RPMLimit int `json:"rpm_limit,omitempty"`
+}
+
+func (s ChannelSettings) ResponsesCompatibilityFixEnabled() bool {
+	return s.ResponsesCompatibilityFix == nil || *s.ResponsesCompatibilityFix
+}
+
+func (s ChannelSettings) AllowsReasoningWithoutEncryptedContent() bool {
+	return s.AllowReasoningWithoutEncryptedContent != nil && *s.AllowReasoningWithoutEncryptedContent
 }
 
 const (

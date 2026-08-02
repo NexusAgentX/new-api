@@ -583,6 +583,29 @@ func TestChannelSettingsHTTPTransportJSONRoundTrip(t *testing.T) {
 	assert.NotContains(t, string(encoded), "http_protocol")
 }
 
+func TestChannelSettingsResponsesCompatibilityDefaultsAndExplicitValues(t *testing.T) {
+	var legacy ChannelSettings
+	require.NoError(t, json.Unmarshal([]byte(`{}`), &legacy))
+	assert.True(t, legacy.ResponsesCompatibilityFixEnabled())
+	assert.False(t, legacy.AllowsReasoningWithoutEncryptedContent())
+
+	disabled := false
+	allowed := true
+	explicit := ChannelSettings{
+		ResponsesCompatibilityFix:             &disabled,
+		AllowReasoningWithoutEncryptedContent: &allowed,
+	}
+	encoded, err := json.Marshal(explicit)
+	require.NoError(t, err)
+	assert.Contains(t, string(encoded), `"responses_compatibility_fix":false`)
+	assert.Contains(t, string(encoded), `"allow_reasoning_without_encrypted_content":true`)
+
+	var decoded ChannelSettings
+	require.NoError(t, json.Unmarshal(encoded, &decoded))
+	assert.False(t, decoded.ResponsesCompatibilityFixEnabled())
+	assert.True(t, decoded.AllowsReasoningWithoutEncryptedContent())
+}
+
 func TestChannelSettingsValidateHTTPTransport(t *testing.T) {
 	require.NoError(t, (&ChannelSettings{}).ValidateHTTPTransport())
 	require.NoError(t, (&ChannelSettings{HTTPProtocol: "AUTO"}).ValidateHTTPTransport())

@@ -27,7 +27,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 
-import { getRequestDegradation } from '../lib/format'
+import { getResponsesCompatibility } from '../lib/format'
 import type { LogOtherData } from '../types'
 
 interface RequestDegradationBadgeProps {
@@ -36,12 +36,32 @@ interface RequestDegradationBadgeProps {
 
 export function RequestDegradationBadge(props: RequestDegradationBadgeProps) {
   const { t } = useTranslation()
-  const degradation = getRequestDegradation(props.other)
-  if (!degradation) return null
+  const compatibility = getResponsesCompatibility(props.other)
+  if (!compatibility) return null
 
-  const description = t('Removed non-replayable reasoning items: {{count}}', {
-    count: degradation.dropped_reasoning_items,
-  })
+  const actions: string[] = []
+  if (compatibility.dropped_non_replayable_reasoning_items > 0) {
+    actions.push(
+      t('Removed non-replayable reasoning items: {{count}}', {
+        count: compatibility.dropped_non_replayable_reasoning_items,
+      })
+    )
+  }
+  if (compatibility.normalized_request_item_ids > 0) {
+    actions.push(
+      t('Normalized request Item IDs: {{count}}', {
+        count: compatibility.normalized_request_item_ids,
+      })
+    )
+  }
+  if (compatibility.normalized_response_item_ids > 0) {
+    actions.push(
+      t('Normalized response Item IDs: {{count}}', {
+        count: compatibility.normalized_response_item_ids,
+      })
+    )
+  }
+  const description = actions.join(' · ')
 
   return (
     <TooltipProvider delay={300}>
@@ -49,15 +69,15 @@ export function RequestDegradationBadge(props: RequestDegradationBadgeProps) {
         <TooltipTrigger
           render={
             <span
-              data-request-degradation-badge='true'
+              data-responses-compatibility-badge='true'
               className='inline-flex max-w-full'
               tabIndex={0}
-              aria-label={`${t('Degraded')}: ${description}`}
+              aria-label={`${t('Responses compatibility')}: ${description}`}
             />
           }
         >
           <StatusBadge
-            label={t('Degraded')}
+            label={t('Responses compatibility')}
             icon={AlertTriangle}
             variant='warning'
             size='sm'
