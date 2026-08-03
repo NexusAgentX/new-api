@@ -223,8 +223,11 @@ export interface ChannelFinanceSummary {
   profit_usd: number
   margin: number
   request_count: number
+  test_request_count: number
+  test_cost_usd: number
   missing_revenue_count: number
   missing_cost_count: number
+  missing_test_cost_count: number
 }
 
 export interface ChannelFinancePeriod extends ChannelFinanceSummary {

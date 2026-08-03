@@ -206,4 +206,58 @@ func TestRecordConsumeLogPersistsRequestTimeChannelFinance(t *testing.T) {
 	assert.InDelta(t, 249.0/500_000*0.25, *recorded.ChannelCostUSD, 1e-12)
 	assert.Equal(t, 0.25, *recorded.ChannelCostRatio)
 	assert.Equal(t, constant.ChannelCostModeUsageRatio, recorded.ChannelCostMode)
+	assert.Equal(t, UsageRequestTypeRegular, recorded.RequestType)
+}
+
+func TestRecordConsumeLogClassifiesChannelTestCostWithoutRevenue(t *testing.T) {
+	originalQuotaPerUnit := common.QuotaPerUnit
+	originalMemoryCacheEnabled := common.MemoryCacheEnabled
+	originalDataExportEnabled := common.DataExportEnabled
+	t.Cleanup(func() {
+		common.QuotaPerUnit = originalQuotaPerUnit
+		common.MemoryCacheEnabled = originalMemoryCacheEnabled
+		common.DataExportEnabled = originalDataExportEnabled
+	})
+	common.QuotaPerUnit = 500_000
+	common.MemoryCacheEnabled = false
+	common.DataExportEnabled = false
+
+	channel := &Channel{
+		Id: 910004, Name: "channel-test-finance",
+		CostMode: constant.ChannelCostModeUsageRatio, UsageCostRatio: 0.08,
+	}
+	require.NoError(t, DB.Create(channel).Error)
+	t.Cleanup(func() {
+		LOG_DB.Where("channel_id = ?", channel.Id).Delete(&Log{})
+		DB.Delete(&Channel{}, channel.Id)
+	})
+
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Set("username", "admin")
+	values := RecordConsumeLog(ctx, 1, RecordConsumeLogParams{
+		ChannelId:                channel.Id,
+		ModelName:                "test-model",
+		TokenName:                "模型测试",
+		TokenId:                  0,
+		Quota:                    80,
+		QuotaBeforeGroup:         1_000,
+		QuotaAfterGroupUnrounded: 80,
+		HasQuotaCalculation:      true,
+		RequestType:              UsageRequestTypeChannelTest,
+		Other:                    map[string]interface{}{"is_test": true},
+	})
+
+	assert.Nil(t, values.RevenueUSD)
+	require.NotNil(t, values.CostUSD)
+	assert.InDelta(t, 0.00016, *values.CostUSD, 1e-12)
+
+	var recorded Log
+	require.NoError(t, LOG_DB.Where("channel_id = ?", channel.Id).First(&recorded).Error)
+	assert.Equal(t, UsageRequestTypeChannelTest, recorded.RequestType)
+	assert.Nil(t, recorded.ChannelRevenueUSD)
+	require.NotNil(t, recorded.ChannelCostUSD)
+	require.NotNil(t, recorded.ChannelCostRatio)
+	assert.InDelta(t, 0.00016, *recorded.ChannelCostUSD, 1e-12)
+	assert.Equal(t, 0.08, *recorded.ChannelCostRatio)
+	assert.Equal(t, constant.ChannelCostModeUsageRatio, recorded.ChannelCostMode)
 }

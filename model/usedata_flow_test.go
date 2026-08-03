@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -185,9 +186,37 @@ func TestLogQuotaDataSplitsRowsByUseGroupTokenChannelAndNode(t *testing.T) {
 	require.Equal(t, 11, rows[0].TokenID)
 	require.Equal(t, 1, rows[0].ChannelID)
 	require.Equal(t, "node-a", rows[0].NodeName)
+	require.Equal(t, UsageRequestTypeRegular, rows[0].RequestType)
 	require.Equal(t, 2, rows[0].Count)
 	require.Equal(t, 150, rows[0].Quota)
 	require.Equal(t, 60, rows[0].TokenUsed)
 	require.Equal(t, "default", rows[1].UseGroup)
 	require.Equal(t, 25, rows[1].Quota)
+}
+
+func TestLogQuotaDataSeparatesRegularAndChannelTestRows(t *testing.T) {
+	truncateTables(t)
+	CacheQuotaDataLock.Lock()
+	CacheQuotaData = make(map[string]*QuotaData)
+	CacheQuotaDataLock.Unlock()
+
+	base := QuotaDataLogParams{
+		UserID: 1, Username: "admin", ModelName: "gpt-test", CreatedAt: 3661,
+		UseGroup: "default", TokenID: 0, ChannelID: 1, NodeName: "node-a",
+		Quota: 100, TokenUsed: 40,
+	}
+	LogQuotaData(base)
+	base.RequestType = UsageRequestTypeChannelTest
+	base.Quota = 200
+	base.TokenUsed = 80
+	LogQuotaData(base)
+	SaveQuotaDataCache()
+
+	var rows []QuotaData
+	require.NoError(t, DB.Order("request_type ASC").Find(&rows).Error)
+	require.Len(t, rows, 2)
+	assert.Equal(t, UsageRequestTypeChannelTest, rows[0].RequestType)
+	assert.Equal(t, 200, rows[0].Quota)
+	assert.Equal(t, UsageRequestTypeRegular, rows[1].RequestType)
+	assert.Equal(t, 100, rows[1].Quota)
 }

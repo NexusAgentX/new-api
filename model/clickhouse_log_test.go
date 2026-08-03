@@ -88,6 +88,7 @@ func TestClickHouseLogCreateTableSQL(t *testing.T) {
 	assert.Contains(t, withoutTTL, "channel_cost_usd Nullable(Decimal(30, 12))")
 	assert.Contains(t, withoutTTL, "channel_cost_ratio Nullable(Decimal(20, 12))")
 	assert.Contains(t, withoutTTL, "channel_cost_mode String DEFAULT ''")
+	assert.Contains(t, withoutTTL, "request_type String DEFAULT ''")
 	assert.Contains(t, withoutTTL, "ORDER BY (created_at, request_id)")
 	assert.NotContains(t, withoutTTL, "TTL ")
 
@@ -112,6 +113,13 @@ func TestClickHouseLogFinanceColumnStatements(t *testing.T) {
 	assert.Contains(t, statements[1], "channel_cost_usd Nullable(Decimal(30, 12))")
 	assert.Contains(t, statements[2], "channel_cost_ratio Nullable(Decimal(20, 12))")
 	assert.Contains(t, statements[3], "channel_cost_mode String DEFAULT ''")
+}
+
+func TestClickHouseLogRequestTypeColumnStatements(t *testing.T) {
+	statements := clickHouseLogRequestTypeColumnStatements()
+
+	require.Len(t, statements, 1)
+	assert.Contains(t, statements[0], "request_type String DEFAULT ''")
 }
 
 func TestClickHouseCreateTableHasTTL(t *testing.T) {

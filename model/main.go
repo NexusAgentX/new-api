@@ -459,6 +459,7 @@ func migrateSQLiteLogDB(db *gorm.DB) error {
 		{Name: "channel_cost_usd", DDL: "`channel_cost_usd` decimal(30,12) NULL"},
 		{Name: "channel_cost_ratio", DDL: "`channel_cost_ratio` decimal(20,12) NULL"},
 		{Name: "channel_cost_mode", DDL: "`channel_cost_mode` varchar(16) NOT NULL DEFAULT ''"},
+		{Name: "request_type", DDL: "`request_type` varchar(32) NOT NULL DEFAULT ''"},
 	}
 	for _, column := range columns {
 		if db.Migrator().HasColumn(&Log{}, column.Name) {
@@ -480,6 +481,9 @@ func migrateClickHouseLogDB() error {
 		return err
 	}
 	if err := ensureClickHouseLogFinanceColumns(); err != nil {
+		return err
+	}
+	if err := ensureClickHouseLogRequestTypeColumn(); err != nil {
 		return err
 	}
 	return syncClickHouseLogTTL(ttlDays)
@@ -519,6 +523,21 @@ func ensureClickHouseLogFinanceColumns() error {
 	return nil
 }
 
+func clickHouseLogRequestTypeColumnStatements() []string {
+	return []string{
+		"ALTER TABLE logs ADD COLUMN IF NOT EXISTS request_type String DEFAULT '' AFTER type",
+	}
+}
+
+func ensureClickHouseLogRequestTypeColumn() error {
+	for _, statement := range clickHouseLogRequestTypeColumnStatements() {
+		if err := LOG_DB.Exec(statement).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func clickHouseLogTTLDays() int {
 	ttlDays := common.GetEnvOrDefault("LOG_SQL_CLICKHOUSE_TTL_DAYS", 0)
 	if ttlDays < 0 {
@@ -549,6 +568,7 @@ CREATE TABLE IF NOT EXISTS logs (
 	user_id Int32 DEFAULT 0,
 	created_at Int64 DEFAULT 0,
 	type Int32 DEFAULT 0,
+	request_type String DEFAULT '',
 	content String DEFAULT '',
 	username String DEFAULT '',
 	token_name String DEFAULT '',

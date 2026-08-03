@@ -75,3 +75,41 @@ func TestRecordConsumeLogPersistsAggregatableQuotaCalculations(t *testing.T) {
 	assert.EqualValues(t, 1, stat.QuotaCalculationCount)
 	assert.EqualValues(t, 2, stat.ConsumeCount)
 }
+
+func TestSumUsedQuotaExcludesChannelTestsUnlessExplicitlyFiltered(t *testing.T) {
+	const username = "channel-test-stat-user"
+	require.NoError(t, LOG_DB.Where("username = ?", username).Delete(&Log{}).Error)
+	t.Cleanup(func() {
+		require.NoError(t, LOG_DB.Where("username = ?", username).Delete(&Log{}).Error)
+	})
+
+	logs := []Log{
+		{
+			UserId: 1, Username: username, CreatedAt: 1, Type: LogTypeConsume,
+			RequestType: UsageRequestTypeRegular, TokenId: 0, TokenName: "playground", Quota: 10, PromptTokens: 1,
+		},
+		{
+			UserId: 1, Username: username, CreatedAt: 2, Type: LogTypeConsume,
+			RequestType: UsageRequestTypeChannelTest, TokenId: 99, TokenName: "模型测试", Quota: 100, PromptTokens: 2,
+		},
+		{
+			UserId: 1, Username: username, CreatedAt: 3, Type: LogTypeConsume,
+			TokenId: 0, TokenName: "模型测试", Quota: 200, PromptTokens: 3,
+		},
+	}
+	for index := range logs {
+		require.NoError(t, createLog(&logs[index]))
+	}
+
+	stat, err := SumUsedQuota(LogTypeConsume, 0, 0, "", username, "", 0, "")
+	require.NoError(t, err)
+	assert.Equal(t, 10, stat.Quota)
+	assert.EqualValues(t, 1, stat.ConsumeCount)
+
+	testStat, err := SumUsedQuota(LogTypeConsume, 0, 0, "", username, "模型测试", 0, "")
+	require.NoError(t, err)
+	assert.Equal(t, 300, testStat.Quota)
+	assert.EqualValues(t, 2, testStat.ConsumeCount)
+	assert.Equal(t, 1, SumUsedToken(LogTypeConsume, 0, 0, "", username, ""))
+	assert.Equal(t, 5, SumUsedToken(LogTypeConsume, 0, 0, "", username, "模型测试"))
+}

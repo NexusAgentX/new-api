@@ -53,6 +53,9 @@ func resetUserRankingCache() {
 
 func seedUserRankingQuota(t *testing.T, row model.QuotaData) {
 	t.Helper()
+	if row.RequestType == "" {
+		row.RequestType = model.UsageRequestTypeRegular
+	}
 	require.NoError(t, model.DB.Create(&row).Error)
 }
 

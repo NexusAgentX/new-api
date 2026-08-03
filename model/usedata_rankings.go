@@ -35,7 +35,7 @@ type UserRankingModelTotal struct {
 
 func GetRankingQuotaTotals(startTime int64, endTime int64) ([]RankingQuotaTotal, error) {
 	var rows []RankingQuotaTotal
-	query := DB.Table("quota_data").
+	query := excludeChannelTestQuotaData(DB.Table("quota_data")).
 		Select("model_name, sum(token_used) as total_tokens").
 		Where("model_name <> ''").
 		Group("model_name").
@@ -52,7 +52,7 @@ func GetRankingQuotaBuckets(startTime int64, endTime int64, bucketSize int64) ([
 	}
 	bucketExpr := rankingBucketExpr(bucketSize)
 	var rows []RankingQuotaBucket
-	query := DB.Table("quota_data").
+	query := excludeChannelTestQuotaData(DB.Table("quota_data")).
 		Select(fmt.Sprintf("model_name, %s as bucket, sum(token_used) as tokens", bucketExpr)).
 		Where("model_name <> ''").
 		Group(fmt.Sprintf("model_name, %s", bucketExpr)).
@@ -75,7 +75,7 @@ func GetUserRankingTotals(startTime int64, endTime int64, sortColumn string, lim
 	}
 
 	rows := make([]UserRankingTotal, 0)
-	query := DB.Table("quota_data").
+	query := excludeChannelTestQuotaData(DB.Table("quota_data")).
 		Select("user_id, sum(token_used) as tokens, sum(quota) as quota, sum(count) as count").
 		Where("user_id > 0").
 		Group("user_id").
@@ -92,7 +92,7 @@ func GetUserRankingModelTotals(startTime int64, endTime int64, userIDs []int) ([
 		return rows, nil
 	}
 
-	query := DB.Table("quota_data").
+	query := excludeChannelTestQuotaData(DB.Table("quota_data")).
 		Select("user_id, model_name, sum(token_used) as tokens, sum(quota) as quota, sum(count) as count").
 		Where("user_id IN ? AND model_name <> ''", userIDs).
 		Group("user_id, model_name").

@@ -226,7 +226,9 @@ func TestDeleteChannelBatchReportsAndAuditsActualDeletedCount(t *testing.T) {
 	assert.Equal(t, float64(1), auditData.Operation.Params["count"])
 }
 
-func TestSettleTestQuotaUsesTieredBilling(t *testing.T) {
+func TestCalculateChannelTestBillingUsesChannelRatioForTieredBilling(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
 	info := &relaycommon.RelayInfo{
 		TieredBillingSnapshot: &billingexpr.BillingSnapshot{
 			BillingMode:   "tiered_expr",
@@ -238,23 +240,56 @@ func TestSettleTestQuotaUsesTieredBilling(t *testing.T) {
 			ExprVersion:   1,
 		},
 		PriceData: hosttypes.PriceData{
-			GroupRatioInfo: hosttypes.GroupRatioInfo{GroupRatio: 1},
+			ModelRatio:      1,
+			CompletionRatio: 2,
+			GroupRatioInfo:  hosttypes.GroupRatioInfo{GroupRatio: 0.08},
 		},
 		BillingRequestInput: &billingexpr.RequestInput{
 			Body: []byte(`{"stream":true}`),
 		},
 	}
 
-	quota, result := settleTestQuota(info, hosttypes.PriceData{
-		ModelRatio:      1,
-		CompletionRatio: 2,
-	}, &dto.Usage{
+	result := service.CalculateChannelTestBilling(ctx, info, &dto.Usage{
 		PromptTokens: 1000,
+		TotalTokens:  1000,
 	})
 
-	require.Equal(t, 1500, quota)
-	require.NotNil(t, result)
-	require.Equal(t, "stream", result.MatchedTier)
+	require.Equal(t, 120, result.Quota)
+	assert.InDelta(t, 1500, result.QuotaBeforeGroup, 1e-12)
+	assert.InDelta(t, 120, result.QuotaAfterGroupUnrounded, 1e-12)
+	require.NotNil(t, result.TieredResult)
+	require.Equal(t, "stream", result.TieredResult.MatchedTier)
+}
+
+func TestCalculateChannelTestBillingKeepsZeroUsageAtZero(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	info := &relaycommon.RelayInfo{
+		PriceData: hosttypes.PriceData{
+			ModelRatio:      1,
+			CompletionRatio: 2,
+			GroupRatioInfo:  hosttypes.GroupRatioInfo{GroupRatio: 0.1},
+		},
+	}
+
+	result := service.CalculateChannelTestBilling(ctx, info, &dto.Usage{})
+
+	assert.Zero(t, result.Quota)
+	assert.Zero(t, result.QuotaBeforeGroup)
+	assert.Zero(t, result.QuotaAfterGroupUnrounded)
+	assert.True(t, result.HasQuotaCalculation)
+}
+
+func TestCoerceTestUsageDistinguishesReturnedUsageFromStreamFallback(t *testing.T) {
+	fallback, returned, err := coerceTestUsage(nil, true, 42)
+	require.NoError(t, err)
+	assert.False(t, returned)
+	assert.Equal(t, 42, fallback.PromptTokens)
+
+	actual, returned, err := coerceTestUsage(dto.Usage{PromptTokens: 7}, true, 42)
+	require.NoError(t, err)
+	assert.True(t, returned)
+	assert.Equal(t, 7, actual.PromptTokens)
 }
 
 func TestBuildTestLogOtherInjectsTieredInfo(t *testing.T) {
@@ -269,7 +304,7 @@ func TestBuildTestLogOtherInjectsTieredInfo(t *testing.T) {
 		ChannelMeta: &relaycommon.ChannelMeta{},
 	}
 	priceData := hosttypes.PriceData{
-		GroupRatioInfo: hosttypes.GroupRatioInfo{GroupRatio: 1},
+		GroupRatioInfo: hosttypes.GroupRatioInfo{GroupRatio: 0.08},
 	}
 	usage := &dto.Usage{
 		PromptTokensDetails: dto.InputTokenDetails{
@@ -277,13 +312,202 @@ func TestBuildTestLogOtherInjectsTieredInfo(t *testing.T) {
 		},
 	}
 
-	other := buildTestLogOther(ctx, info, priceData, usage, &billingexpr.TieredResult{
-		MatchedTier: "base",
-	})
+	other := buildTestLogOther(ctx, info, priceData, usage, service.ChannelTestBillingResult{
+		TieredResult: &billingexpr.TieredResult{MatchedTier: "base"},
+	}, constant.ChannelCostModeUsageRatio)
 
 	require.Equal(t, "tiered_expr", other["billing_mode"])
 	require.Equal(t, "base", other["matched_tier"])
+	assert.Equal(t, true, other["is_test"])
+	assert.Equal(t, model.UsageRequestTypeChannelTest, other["request_type"])
+	assert.Equal(t, constant.ChannelCostModeUsageRatio, other["channel_cost_mode"])
+	assert.InDelta(t, 0.08, other["channel_cost_ratio"], 1e-12)
 	require.NotEmpty(t, other["expr_b64"])
+}
+
+func TestResolveChannelTestBillingPolicyUsesConfiguredChannelCost(t *testing.T) {
+	tests := []struct {
+		name      string
+		channel   model.Channel
+		wantMode  string
+		wantRatio float64
+	}{
+		{
+			name:      "xtoken special",
+			channel:   model.Channel{CostMode: constant.ChannelCostModeUsageRatio, UsageCostRatio: 0.08},
+			wantMode:  constant.ChannelCostModeUsageRatio,
+			wantRatio: 0.08,
+		},
+		{
+			name:      "xtoken plus",
+			channel:   model.Channel{CostMode: constant.ChannelCostModeUsageRatio, UsageCostRatio: 0.10},
+			wantMode:  constant.ChannelCostModeUsageRatio,
+			wantRatio: 0.10,
+		},
+		{
+			name:     "fixed daily",
+			channel:  model.Channel{CostMode: constant.ChannelCostModeFixedDaily, FixedDailyCostUSD: 2.1},
+			wantMode: constant.ChannelCostModeFixedDaily,
+		},
+		{
+			name:     "unconfigured",
+			channel:  model.Channel{CostMode: constant.ChannelCostModeNone},
+			wantMode: constant.ChannelCostModeNone,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			mode, ratio, err := resolveChannelTestBillingPolicy(&test.channel)
+			require.NoError(t, err)
+			assert.Equal(t, test.wantMode, mode)
+			assert.Equal(t, test.wantRatio, ratio)
+		})
+	}
+}
+
+func TestChannelTestRecordsConfiguredCostWithoutWalletConsumption(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Log{}, &model.QuotaData{}, &model.Token{}))
+
+	originalQuotaPerUnit := common.QuotaPerUnit
+	originalMemoryCacheEnabled := common.MemoryCacheEnabled
+	originalLogConsumeEnabled := common.LogConsumeEnabled
+	originalDataExportEnabled := common.DataExportEnabled
+	originalModelRatios := ratio_setting.ModelRatio2JSONString()
+	originalCompletionRatios := ratio_setting.CompletionRatio2JSONString()
+	originalCacheRatios := ratio_setting.CacheRatio2JSONString()
+	originalGroupRatios := ratio_setting.GroupRatio2JSONString()
+	originalGroupGroupRatios := ratio_setting.GroupGroupRatio2JSONString()
+	common.QuotaPerUnit = 500_000
+	common.MemoryCacheEnabled = false
+	common.LogConsumeEnabled = true
+	common.DataExportEnabled = false
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"channel-cost-test-model":1}`))
+	require.NoError(t, ratio_setting.UpdateCompletionRatioByJSONString(`{"channel-cost-test-model":2}`))
+	require.NoError(t, ratio_setting.UpdateCacheRatioByJSONString(`{"channel-cost-test-model":0.1}`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"LionOrg":1}`))
+	require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(`{}`))
+	service.InitHttpClient()
+	t.Cleanup(func() {
+		common.QuotaPerUnit = originalQuotaPerUnit
+		common.MemoryCacheEnabled = originalMemoryCacheEnabled
+		common.LogConsumeEnabled = originalLogConsumeEnabled
+		common.DataExportEnabled = originalDataExportEnabled
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(originalModelRatios))
+		require.NoError(t, ratio_setting.UpdateCompletionRatioByJSONString(originalCompletionRatios))
+		require.NoError(t, ratio_setting.UpdateCacheRatioByJSONString(originalCacheRatios))
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(originalGroupRatios))
+		require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(originalGroupGroupRatios))
+	})
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"chatcmpl-cost","object":"chat.completion","created":1,"model":"channel-cost-test-model","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":100,"completion_tokens":10,"total_tokens":110}}`)
+	}))
+	defer upstream.Close()
+
+	root := &model.User{
+		Username: "channel-cost-root", Role: common.RoleRootUser,
+		Status: common.UserStatusEnabled, Group: "LionOrg",
+		Quota: 1_000_000, UsedQuota: 123, RequestCount: 7,
+	}
+	require.NoError(t, db.Create(root).Error)
+	channel := &model.Channel{
+		Name: "channel-cost-test", Type: constant.ChannelTypeOpenAI,
+		Key: "test-key", BaseURL: common.GetPointer(upstream.URL),
+		Models: "channel-cost-test-model", Group: "LionOrg",
+		Status:   common.ChannelStatusEnabled,
+		CostMode: constant.ChannelCostModeUsageRatio, UsageCostRatio: 0.08,
+	}
+	require.NoError(t, db.Create(channel).Error)
+
+	result := testChannel(t.Context(), channel, root.Id, "channel-cost-test-model", channelTestRequestOptions{
+		endpointType: string(constant.EndpointTypeOpenAI),
+	})
+	require.NoError(t, result.localErr)
+	require.Nil(t, result.newAPIError)
+
+	var storedUser model.User
+	require.NoError(t, db.First(&storedUser, root.Id).Error)
+	assert.Equal(t, 1_000_000, storedUser.Quota)
+	assert.Equal(t, 123, storedUser.UsedQuota)
+	assert.Equal(t, 7, storedUser.RequestCount)
+
+	var log model.Log
+	require.NoError(t, db.Where("channel_id = ?", channel.Id).First(&log).Error)
+	assert.Equal(t, model.UsageRequestTypeChannelTest, log.RequestType)
+	assert.Equal(t, 10, log.Quota)
+	require.NotNil(t, log.QuotaBeforeGroup)
+	require.NotNil(t, log.QuotaAfterGroupUnrounded)
+	assert.InDelta(t, 120, *log.QuotaBeforeGroup, 1e-12)
+	assert.InDelta(t, 9.6, *log.QuotaAfterGroupUnrounded, 1e-12)
+	assert.Nil(t, log.ChannelRevenueUSD)
+	require.NotNil(t, log.ChannelCostUSD)
+	require.NotNil(t, log.ChannelCostRatio)
+	assert.InDelta(t, 0.0000192, *log.ChannelCostUSD, 1e-12)
+	assert.Equal(t, 0.08, *log.ChannelCostRatio)
+	assert.Equal(t, constant.ChannelCostModeUsageRatio, log.ChannelCostMode)
+	var other map[string]interface{}
+	require.NoError(t, common.UnmarshalJsonStr(log.Other, &other))
+	assert.Equal(t, true, other["is_test"])
+	assert.InDelta(t, 0.08, other["group_ratio"], 1e-12)
+}
+
+func TestRecordChannelTestConsumeLogChargesReturnedUsageOnFailure(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Log{}))
+	originalQuotaPerUnit := common.QuotaPerUnit
+	originalMemoryCacheEnabled := common.MemoryCacheEnabled
+	originalDataExportEnabled := common.DataExportEnabled
+	common.QuotaPerUnit = 500_000
+	common.MemoryCacheEnabled = false
+	common.DataExportEnabled = false
+	t.Cleanup(func() {
+		common.QuotaPerUnit = originalQuotaPerUnit
+		common.MemoryCacheEnabled = originalMemoryCacheEnabled
+		common.DataExportEnabled = originalDataExportEnabled
+	})
+
+	channel := &model.Channel{
+		Name: "failed-channel-test-cost", CostMode: constant.ChannelCostModeUsageRatio,
+		UsageCostRatio: 0.1,
+	}
+	require.NoError(t, db.Create(channel).Error)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Set("username", "admin")
+	now := time.Now()
+	info := &relaycommon.RelayInfo{
+		UserId: 1, OriginModelName: "failed-test-model",
+		UsingGroup: "LionOrg", StartTime: now, FirstResponseTime: now,
+		ChannelMeta: &relaycommon.ChannelMeta{ChannelId: channel.Id},
+		PriceData: hosttypes.PriceData{
+			ModelRatio: 1, CompletionRatio: 2,
+			GroupRatioInfo: hosttypes.GroupRatioInfo{GroupRatio: 0.1, GroupSpecialRatio: -1},
+		},
+	}
+
+	recordChannelTestConsumeLog(
+		ctx,
+		channel,
+		1,
+		info,
+		info.PriceData,
+		&dto.Usage{PromptTokens: 100, TotalTokens: 100},
+		constant.ChannelCostModeUsageRatio,
+		"failed",
+		now,
+	)
+
+	var log model.Log
+	require.NoError(t, db.Where("channel_id = ?", channel.Id).First(&log).Error)
+	assert.Equal(t, 10, log.Quota)
+	assert.Nil(t, log.ChannelRevenueUSD)
+	require.NotNil(t, log.ChannelCostUSD)
+	assert.InDelta(t, 0.00002, *log.ChannelCostUSD, 1e-12)
+	var other map[string]interface{}
+	require.NoError(t, common.UnmarshalJsonStr(log.Other, &other))
+	assert.Equal(t, "failed", other["channel_test_result"])
 }
 
 func TestResolveChannelTestUserIDUsesRequestUser(t *testing.T) {

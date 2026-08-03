@@ -47,6 +47,12 @@ func buildLogLikeCondition(column string, value string) (string, string, error) 
 	return column + " LIKE ? ESCAPE '!'", pattern, nil
 }
 
+func excludeChannelTestLogs(query *gorm.DB) *gorm.DB {
+	return query.
+		Where("COALESCE(request_type, '') <> ?", UsageRequestTypeChannelTest).
+		Where("NOT (token_id = 0 AND token_name = ?)", "模型测试")
+}
+
 func sanitizeClickHouseLikePattern(input string) (string, error) {
 	input = strings.ReplaceAll(input, `\`, `\\`)
 	input = strings.ReplaceAll(input, `_`, `\_`)
@@ -62,6 +68,7 @@ type Log struct {
 	UserId                   int                        `json:"user_id" gorm:"index;index:idx_user_id_id,priority:1"`
 	CreatedAt                int64                      `json:"created_at" gorm:"bigint;index:idx_created_at_id,priority:1;index:idx_created_at_type"`
 	Type                     int                        `json:"type" gorm:"index:idx_created_at_type"`
+	RequestType              string                     `json:"request_type,omitempty" gorm:"type:varchar(32);default:''"`
 	Content                  string                     `json:"content"`
 	Username                 string                     `json:"username" gorm:"index;index:index_username_model_name,priority:2;default:''"`
 	TokenName                string                     `json:"token_name" gorm:"index;default:''"`
@@ -357,6 +364,7 @@ type RecordConsumeLogParams struct {
 	UseTimeSeconds           int                    `json:"use_time_seconds"`
 	IsStream                 bool                   `json:"is_stream"`
 	Group                    string                 `json:"group"`
+	RequestType              string                 `json:"request_type,omitempty"`
 	Other                    map[string]interface{} `json:"other"`
 }
 
@@ -366,7 +374,15 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 		params.QuotaBeforeGroup,
 		params.QuotaAfterGroupUnrounded,
 	)
+	isChannelTest := isChannelTestUsage(params.RequestType, params.TokenId, params.TokenName)
+	requestType := normalizeUsageRequestType(params.RequestType)
+	if isChannelTest {
+		requestType = UsageRequestTypeChannelTest
+	}
 	channelFinance := calculateChannelFinanceValues(LogTypeConsume, params.ChannelId, params.Quota, quotaBeforeGroup)
+	if isChannelTest {
+		channelFinance.RevenueUSD = nil
+	}
 	if !common.LogConsumeEnabled {
 		return channelFinance
 	}
@@ -388,6 +404,7 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 		Username:                 username,
 		CreatedAt:                createdAt,
 		Type:                     LogTypeConsume,
+		RequestType:              requestType,
 		Content:                  params.Content,
 		PromptTokens:             params.PromptTokens,
 		CompletionTokens:         params.CompletionTokens,
@@ -421,16 +438,17 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 	}
 	if common.DataExportEnabled {
 		LogQuotaData(QuotaDataLogParams{
-			UserID:    userId,
-			Username:  username,
-			ModelName: params.ModelName,
-			Quota:     params.Quota,
-			CreatedAt: createdAt,
-			TokenUsed: params.PromptTokens + params.CompletionTokens,
-			UseGroup:  params.Group,
-			TokenID:   params.TokenId,
-			ChannelID: params.ChannelId,
-			NodeName:  common.NodeName,
+			UserID:      userId,
+			Username:    username,
+			ModelName:   params.ModelName,
+			Quota:       params.Quota,
+			CreatedAt:   createdAt,
+			TokenUsed:   params.PromptTokens + params.CompletionTokens,
+			UseGroup:    params.Group,
+			TokenID:     params.TokenId,
+			ChannelID:   params.ChannelId,
+			NodeName:    common.NodeName,
+			RequestType: requestType,
 		})
 	}
 	return channelFinance
@@ -482,6 +500,7 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 		Username:                 username,
 		CreatedAt:                createdAt,
 		Type:                     params.LogType,
+		RequestType:              UsageRequestTypeRegular,
 		Content:                  params.Content,
 		TokenName:                tokenName,
 		ModelName:                params.ModelName,
@@ -507,15 +526,16 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 			nodeName = common.NodeName
 		}
 		LogQuotaData(QuotaDataLogParams{
-			UserID:    params.UserId,
-			Username:  username,
-			ModelName: params.ModelName,
-			Quota:     params.Quota,
-			CreatedAt: createdAt,
-			UseGroup:  params.Group,
-			TokenID:   params.TokenId,
-			ChannelID: params.ChannelId,
-			NodeName:  nodeName,
+			UserID:      params.UserId,
+			Username:    username,
+			ModelName:   params.ModelName,
+			Quota:       params.Quota,
+			CreatedAt:   createdAt,
+			UseGroup:    params.Group,
+			TokenID:     params.TokenId,
+			ChannelID:   params.ChannelId,
+			NodeName:    nodeName,
+			RequestType: UsageRequestTypeRegular,
 		})
 	}
 }
@@ -689,6 +709,9 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 	if tokenName != "" {
 		tx = tx.Where("token_name = ?", tokenName)
 		rpmTpmQuery = rpmTpmQuery.Where("token_name = ?", tokenName)
+	} else {
+		tx = excludeChannelTestLogs(tx)
+		rpmTpmQuery = excludeChannelTestLogs(rpmTpmQuery)
 	}
 	if startTimestamp != 0 {
 		tx = tx.Where("created_at >= ?", startTimestamp)
@@ -737,6 +760,8 @@ func SumUsedToken(logType int, startTimestamp int64, endTimestamp int64, modelNa
 	}
 	if tokenName != "" {
 		tx = tx.Where("token_name = ?", tokenName)
+	} else {
+		tx = excludeChannelTestLogs(tx)
 	}
 	if startTimestamp != 0 {
 		tx = tx.Where("created_at >= ?", startTimestamp)

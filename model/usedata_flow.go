@@ -34,7 +34,7 @@ func GetFlowQuotaData(startTime int64, endTime int64, username string, userID in
 }
 
 func flowQuotaBaseQuery(startTime int64, endTime int64) *gorm.DB {
-	query := DB.Table("quota_data").
+	query := excludeChannelTestQuotaData(DB.Table("quota_data")).
 		Where("use_group <> ''").
 		Where("created_at >= ? and created_at <= ?", startTime, endTime)
 	return query

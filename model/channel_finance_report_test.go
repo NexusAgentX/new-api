@@ -207,3 +207,78 @@ func TestChannelFinanceReportMarksDeletedChannels(t *testing.T) {
 	assert.InDelta(t, revenue, report.Channels[0].RevenueUSD, 1e-12)
 	assert.InDelta(t, cost, report.Channels[0].CostUSD, 1e-12)
 }
+
+func TestChannelFinanceReportSeparatesChannelTestCostFromCustomerRevenue(t *testing.T) {
+	truncateTables(t)
+	start := time.Date(2033, 5, 6, 0, 0, 0, 0, time.UTC)
+	usageChannelID := 920005
+	unconfiguredChannelID := 920006
+	require.NoError(t, DB.Create(&[]Channel{
+		{
+			Id: usageChannelID, Name: "metered-tests",
+			CostMode: constant.ChannelCostModeUsageRatio, UsageCostRatio: 0.08,
+		},
+		{
+			Id: unconfiguredChannelID, Name: "missing-test-cost",
+			CostMode: constant.ChannelCostModeNone,
+		},
+	}).Error)
+
+	revenueFive := 5.0
+	revenueOne := 1.0
+	legacyInflatedRevenue := 7.0
+	structuredInflatedRevenue := 9.0
+	costTwo := 2.0
+	costPointOne := 0.1
+	legacyTestCost := 0.25
+	structuredTestCost := 0.5
+	logs := []Log{
+		{
+			CreatedAt: start.Add(time.Hour).Unix(), Type: LogTypeConsume, ChannelId: usageChannelID,
+			TokenId: 11, ChannelRevenueUSD: &revenueFive, ChannelCostUSD: &costTwo,
+			ChannelCostMode: constant.ChannelCostModeUsageRatio,
+		},
+		{
+			CreatedAt: start.Add(2 * time.Hour).Unix(), Type: LogTypeConsume, ChannelId: usageChannelID,
+			RequestType: UsageRequestTypeRegular, TokenId: 0,
+			ChannelRevenueUSD: &revenueOne, ChannelCostUSD: &costPointOne,
+			ChannelCostMode: constant.ChannelCostModeUsageRatio,
+		},
+		{
+			CreatedAt: start.Add(3 * time.Hour).Unix(), Type: LogTypeConsume, ChannelId: usageChannelID,
+			RequestType: UsageRequestTypeChannelTest, TokenId: 99,
+			ChannelRevenueUSD: &structuredInflatedRevenue, ChannelCostUSD: &structuredTestCost,
+			ChannelCostMode: constant.ChannelCostModeUsageRatio,
+		},
+		{
+			CreatedAt: start.Add(4 * time.Hour).Unix(), Type: LogTypeConsume, ChannelId: usageChannelID,
+			TokenId: 0, TokenName: "模型测试",
+			ChannelRevenueUSD: &legacyInflatedRevenue, ChannelCostUSD: &legacyTestCost,
+			ChannelCostMode: constant.ChannelCostModeUsageRatio,
+		},
+		{
+			CreatedAt: start.Add(5 * time.Hour).Unix(), Type: LogTypeConsume, ChannelId: unconfiguredChannelID,
+			RequestType: UsageRequestTypeChannelTest, TokenId: 0,
+			ChannelCostMode: constant.ChannelCostModeNone,
+		},
+	}
+	for index := range logs {
+		require.NoError(t, createLog(&logs[index]))
+	}
+
+	report, err := GetChannelFinanceReport(
+		start.Unix(),
+		start.Add(24*time.Hour-time.Second).Unix(),
+		ChannelFinanceGranularityDay,
+		time.UTC,
+	)
+	require.NoError(t, err)
+	assert.InDelta(t, 6, report.Summary.RevenueUSD, 1e-12)
+	assert.InDelta(t, 2.85, report.Summary.VariableCostUSD, 1e-12)
+	assert.InDelta(t, 0.75, report.Summary.TestCostUSD, 1e-12)
+	assert.EqualValues(t, 2, report.Summary.RequestCount)
+	assert.EqualValues(t, 3, report.Summary.TestRequestCount)
+	assert.Zero(t, report.Summary.MissingRevenueCount)
+	assert.EqualValues(t, 1, report.Summary.MissingCostCount)
+	assert.EqualValues(t, 1, report.Summary.MissingTestCostCount)
+}

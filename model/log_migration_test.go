@@ -29,6 +29,7 @@ func TestMigrateSQLiteLogDBAddsFinanceColumnsWithoutRebuildingDecimalSchema(t *t
 		"channel_cost_usd",
 		"channel_cost_ratio",
 		"channel_cost_mode",
+		"request_type",
 	} {
 		assert.True(t, db.Migrator().HasColumn(&Log{}, column), column)
 	}

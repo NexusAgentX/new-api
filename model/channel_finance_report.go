@@ -30,8 +30,11 @@ type ChannelFinanceSummary struct {
 	ProfitUSD             float64 `json:"profit_usd"`
 	Margin                float64 `json:"margin"`
 	RequestCount          int64   `json:"request_count"`
+	TestRequestCount      int64   `json:"test_request_count"`
+	TestCostUSD           float64 `json:"test_cost_usd"`
 	MissingRevenueCount   int64   `json:"missing_revenue_count"`
 	MissingCostCount      int64   `json:"missing_cost_count"`
+	MissingTestCostCount  int64   `json:"missing_test_cost_count"`
 }
 
 type ChannelFinancePeriod struct {
@@ -62,8 +65,11 @@ type channelFinanceAccumulator struct {
 	infrastructureCostUSD decimal.Decimal
 	checkinCostUSD        decimal.Decimal
 	requestCount          int64
+	testRequestCount      int64
+	testCostUSD           decimal.Decimal
 	missingRevenue        int64
 	missingCost           int64
+	missingTestCost       int64
 }
 
 type channelFinanceLogRow struct {
@@ -73,6 +79,9 @@ type channelFinanceLogRow struct {
 	ChannelRevenueUSD *float64 `gorm:"column:channel_revenue_usd"`
 	ChannelCostUSD    *float64 `gorm:"column:channel_cost_usd"`
 	ChannelCostMode   string   `gorm:"column:channel_cost_mode"`
+	RequestType       string   `gorm:"column:request_type"`
+	TokenID           int      `gorm:"column:token_id"`
+	TokenName         string   `gorm:"column:token_name"`
 }
 
 type checkinFinanceRow struct {
@@ -107,10 +116,9 @@ func GetChannelFinanceReport(startTimestamp, endTimestamp int64, granularity str
 
 	rows := make([]channelFinanceLogRow, 0)
 	err = LOG_DB.Model(&Log{}).
-		Select("created_at, type, channel_id, channel_revenue_usd, channel_cost_usd, channel_cost_mode").
+		Select("created_at, type, channel_id, channel_revenue_usd, channel_cost_usd, channel_cost_mode, request_type, token_id, token_name").
 		Where("created_at >= ? AND created_at <= ?", startTimestamp, endTimestamp).
 		Where("type IN ?", []int{LogTypeConsume, LogTypeRefund}).
-		Where("token_name <> ?", "模型测试").
 		Find(&rows).Error
 	if err != nil {
 		return ChannelFinanceReport{}, err
@@ -140,29 +148,47 @@ func GetChannelFinanceReport(startTimestamp, endTimestamp int64, granularity str
 		periodTotal := accumulatorForPeriod(periodTotals, periodStart)
 		channelPeriodTotal := accumulatorForPeriod(channelPeriodTotals[row.ChannelID], periodStart)
 
+		isChannelTest := isChannelTestUsage(row.RequestType, row.TokenID, row.TokenName)
 		if row.Type == LogTypeConsume {
-			channelTotal.requestCount++
-			channelPeriodTotal.requestCount++
-			periodTotal.requestCount++
+			if isChannelTest {
+				channelTotal.testRequestCount++
+				channelPeriodTotal.testRequestCount++
+				periodTotal.testRequestCount++
+			} else {
+				channelTotal.requestCount++
+				channelPeriodTotal.requestCount++
+				periodTotal.requestCount++
+			}
 		}
-		if row.ChannelRevenueUSD == nil {
-			channelTotal.missingRevenue++
-			channelPeriodTotal.missingRevenue++
-			periodTotal.missingRevenue++
-		} else {
-			value := decimal.NewFromFloat(*row.ChannelRevenueUSD)
-			channelTotal.revenueUSD = channelTotal.revenueUSD.Add(value)
-			channelPeriodTotal.revenueUSD = channelPeriodTotal.revenueUSD.Add(value)
-			periodTotal.revenueUSD = periodTotal.revenueUSD.Add(value)
+		if !isChannelTest {
+			if row.ChannelRevenueUSD == nil {
+				channelTotal.missingRevenue++
+				channelPeriodTotal.missingRevenue++
+				periodTotal.missingRevenue++
+			} else {
+				value := decimal.NewFromFloat(*row.ChannelRevenueUSD)
+				channelTotal.revenueUSD = channelTotal.revenueUSD.Add(value)
+				channelPeriodTotal.revenueUSD = channelPeriodTotal.revenueUSD.Add(value)
+				periodTotal.revenueUSD = periodTotal.revenueUSD.Add(value)
+			}
 		}
 
 		if row.ChannelCostUSD == nil {
-			usageCostExpected := row.ChannelCostMode == constant.ChannelCostModeUsageRatio ||
-				(row.ChannelCostMode == "" && channel.CostMode == constant.ChannelCostModeUsageRatio)
-			if usageCostExpected {
+			costMode := row.ChannelCostMode
+			if costMode == "" {
+				costMode = channel.CostMode
+			}
+			missingCost := costMode == constant.ChannelCostModeUsageRatio ||
+				(isChannelTest && costMode == constant.ChannelCostModeNone)
+			if missingCost {
 				channelTotal.missingCost++
 				channelPeriodTotal.missingCost++
 				periodTotal.missingCost++
+				if isChannelTest {
+					channelTotal.missingTestCost++
+					channelPeriodTotal.missingTestCost++
+					periodTotal.missingTestCost++
+				}
 			}
 			continue
 		}
@@ -170,6 +196,11 @@ func GetChannelFinanceReport(startTimestamp, endTimestamp int64, granularity str
 		channelTotal.variableCostUSD = channelTotal.variableCostUSD.Add(value)
 		channelPeriodTotal.variableCostUSD = channelPeriodTotal.variableCostUSD.Add(value)
 		periodTotal.variableCostUSD = periodTotal.variableCostUSD.Add(value)
+		if isChannelTest {
+			channelTotal.testCostUSD = channelTotal.testCostUSD.Add(value)
+			channelPeriodTotal.testCostUSD = channelPeriodTotal.testCostUSD.Add(value)
+			periodTotal.testCostUSD = periodTotal.testCostUSD.Add(value)
+		}
 	}
 
 	checkinRows := make([]checkinFinanceRow, 0)
@@ -322,8 +353,11 @@ func (accumulator *channelFinanceAccumulator) add(other *channelFinanceAccumulat
 	accumulator.infrastructureCostUSD = accumulator.infrastructureCostUSD.Add(other.infrastructureCostUSD)
 	accumulator.checkinCostUSD = accumulator.checkinCostUSD.Add(other.checkinCostUSD)
 	accumulator.requestCount += other.requestCount
+	accumulator.testRequestCount += other.testRequestCount
+	accumulator.testCostUSD = accumulator.testCostUSD.Add(other.testCostUSD)
 	accumulator.missingRevenue += other.missingRevenue
 	accumulator.missingCost += other.missingCost
+	accumulator.missingTestCost += other.missingTestCost
 }
 
 func (accumulator *channelFinanceAccumulator) summary() ChannelFinanceSummary {
@@ -345,7 +379,10 @@ func (accumulator *channelFinanceAccumulator) summary() ChannelFinanceSummary {
 		ProfitUSD:             profit.InexactFloat64(),
 		Margin:                margin.InexactFloat64(),
 		RequestCount:          accumulator.requestCount,
+		TestRequestCount:      accumulator.testRequestCount,
+		TestCostUSD:           accumulator.testCostUSD.InexactFloat64(),
 		MissingRevenueCount:   accumulator.missingRevenue,
 		MissingCostCount:      accumulator.missingCost,
+		MissingTestCostCount:  accumulator.missingTestCost,
 	}
 }

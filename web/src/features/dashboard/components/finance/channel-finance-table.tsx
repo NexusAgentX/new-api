@@ -104,13 +104,27 @@ export function ChannelFinanceTable(props: {
                   </div>
                 </TableCell>
                 <TableCell className='text-right tabular-nums'>
-                  {formatNumber(channel.request_count)}
+                  <div>{formatNumber(channel.request_count)}</div>
+                  {channel.test_request_count > 0 && (
+                    <div className='text-muted-foreground text-xs'>
+                      {t('{{count}} tests', {
+                        count: channel.test_request_count,
+                      })}
+                    </div>
+                  )}
                 </TableCell>
                 <TableCell className='text-right tabular-nums'>
                   {formatMoney(channel.revenue_usd)}
                 </TableCell>
                 <TableCell className='text-right tabular-nums'>
-                  {formatMoney(channel.variable_cost_usd)}
+                  <div>{formatMoney(channel.variable_cost_usd)}</div>
+                  {channel.test_request_count > 0 &&
+                    channel.cost_mode === 'usage_ratio' && (
+                      <div className='text-muted-foreground text-xs'>
+                        {t('Channel test cost')}:{' '}
+                        {formatMoney(channel.test_cost_usd)}
+                      </div>
+                    )}
                 </TableCell>
                 <TableCell className='text-right tabular-nums'>
                   {formatMoney(channel.fixed_cost_usd)}
